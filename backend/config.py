@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # 支持的交易所列表（使用 CCXT 库，前期聚焦 4 个主流所）
 SUPPORTED_EXCHANGES: List[str] = [
     "binance", "okx", "bybit", "gate",
+    "kucoin", "kraken", "mexc", "htx",
 ]
 
 # 默认监控的交易对列表（主流币 + 高波动小币种，增加套利机会）

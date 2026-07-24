@@ -60,7 +60,7 @@ WS_RECOVERY_INTERVAL = 60
 WS_WATCH_TIMEOUT = 15
 
 # 已知 WebSocket 不稳定的交易所，强制使用 REST 轮询
-WS_BLACKLIST: set = {"bybit"}
+WS_BLACKLIST: set = {"bybit", "gate", "kraken", "kucoin"}
 
 
 class PriceScanner:
@@ -518,18 +518,39 @@ class WebSocketScanner:
         if exchange is None:
             return
 
-        logger.info("开始监听 %s 的行情数据", exchange_name)
+        # 获取该交易所实际支持的交易对（过滤掉不支持的）
+        valid_symbols = await self._get_valid_symbols(exchange_name, exchange)
+        logger.info("开始监听 %s 的行情数据（%d/%d 交易对）",
+                    exchange_name, len(valid_symbols), len(self.symbols))
 
         while True:
             # 判断当前模式
             if self._rest_mode.get(exchange_name, False):
                 # REST 降级模式：轮询获取数据
-                await self._rest_poll_loop(exchange_name)
+                await self._rest_poll_loop(exchange_name, valid_symbols)
             else:
                 # WebSocket 模式
-                await self._ws_watch_loop(exchange_name)
+                await self._ws_watch_loop(exchange_name, valid_symbols)
 
-    async def _ws_watch_loop(self, exchange_name: str) -> None:
+    async def _get_valid_symbols(self, exchange_name: str, exchange: Any) -> list:
+        """
+        获取该交易所实际支持的自选交易对
+
+        通过 load_markets 加载交易所市场数据，过滤出支持的交易对。
+        如果加载失败，返回全部交易对（让后续请求自行报错）。
+        """
+        try:
+            await exchange.load_markets()
+            valid = [s for s in self.symbols if s in exchange.markets]
+            if len(valid) < len(self.symbols):
+                skipped = set(self.symbols) - set(valid)
+                logger.info("%s 不支持的交易对: %s", exchange_name, skipped)
+            return valid if valid else self.symbols
+        except Exception as e:
+            logger.warning("%s 加载市场数据失败: %s，使用全部交易对", exchange_name, e)
+            return self.symbols
+
+    async def _ws_watch_loop(self, exchange_name: str, symbols: list = None) -> None:
         """WebSocket 监听循环（单次尝试，失败后由外层决定是否降级）"""
         exchange = self._exchange_instances.get(exchange_name)
         if exchange is None:
@@ -537,8 +558,9 @@ class WebSocketScanner:
 
         try:
             # watch_tickers 阻塞直到收到新数据，加超时防止无限阻塞
+            watch_list = symbols if symbols else self.symbols
             tickers = await asyncio.wait_for(
-                exchange.watch_tickers(self.symbols),
+                exchange.watch_tickers(watch_list),
                 timeout=WS_WATCH_TIMEOUT,
             )
 
@@ -556,7 +578,7 @@ class WebSocketScanner:
                 self.error_counts[exchange_name] = 0
                 self._ws_failures[exchange_name] = 0
 
-                # 计算延迟
+                # 计算延迟：优先用 ticker 的 timestamp
                 latest_ts = max(
                     (t.get("timestamp") or 0 for t in tickers.values() if t),
                     default=0,
@@ -564,6 +586,12 @@ class WebSocketScanner:
                 if latest_ts > 0:
                     self.latencies[exchange_name] = round(
                         max(0, time.time() * 1000 - latest_ts), 2
+                    )
+                else:
+                    # 交易所不推送 timestamp（如 gate），用轮询间隔估算
+                    interval = self.config.model.scan_interval if self.config else 3
+                    self.latencies[exchange_name] = round(
+                        max(1, interval * 1000 * 0.5), 2
                     )
 
         except asyncio.CancelledError:
@@ -595,7 +623,7 @@ class WebSocketScanner:
                 )
                 await asyncio.sleep(WS_RECONNECT_DELAY)
 
-    async def _rest_poll_loop(self, exchange_name: str) -> None:
+    async def _rest_poll_loop(self, exchange_name: str, symbols: list = None) -> None:
         """REST 轮询循环（降级模式，黑名单交易所不恢复 WS）"""
         exchange = self._exchange_instances.get(exchange_name)
         if exchange is None:
@@ -605,7 +633,8 @@ class WebSocketScanner:
 
         try:
             # 用 REST 方式获取 tickers（ccxt.pro 实例继承 REST 方法）
-            tickers = await exchange.fetch_tickers(self.symbols)
+            poll_list = symbols if symbols else self.symbols
+            tickers = await exchange.fetch_tickers(poll_list)
 
             # 解析并更新缓存
             updated = 0
