@@ -35,7 +35,7 @@ RISK_HIGH_THRESHOLD = 0.02    # 价差 > 2% 视为高风险
 RISK_MEDIUM_THRESHOLD = 0.01  # 价差 1%-2% 视为中等风险
 
 # 滑点估算系数（基于订单量的价格影响比例）
-SLIPPAGE_FACTOR = 0.0005      # 0.05% 估算滑点
+SLIPPAGE_FACTOR = 0.0002      # 0.02% 估算滑点（小单量）
 
 
 class ArbitrageDetector:

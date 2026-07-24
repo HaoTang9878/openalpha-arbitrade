@@ -35,14 +35,15 @@ SUPPORTED_EXCHANGES: List[str] = [
     "binance", "okx", "bybit", "gate",
 ]
 
-# 默认监控的交易对列表（前期聚焦 5 个主流币）
+# 默认监控的交易对列表（主流币 + 高波动小币种，增加套利机会）
 DEFAULT_SYMBOLS: List[str] = [
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
+    "DOGE/USDT", "AVAX/USDT", "ARB/USDT",
 ]
 
 # 默认配置参数
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "min_profitability": 0.003,
+    "min_profitability": 0.0005,
     "order_amount": 0.01,
     "scan_interval": 3,
     "max_order_age": 180,
@@ -197,6 +198,16 @@ class Config:
             if "exchange_fees" in data and isinstance(data["exchange_fees"], dict):
                 self.model.exchange_fees.update(data["exchange_fees"])
 
+            # 从 YAML 加载 API 密钥（格式：api_keys: {binance: {apiKey: xx, secret: xx}}）
+            if "api_keys" in data and isinstance(data["api_keys"], dict):
+                for ex_name, keys in data["api_keys"].items():
+                    if isinstance(keys, dict) and keys.get("apiKey") and keys.get("secret"):
+                        self.api_keys[ex_name] = {
+                            "apiKey": keys["apiKey"],
+                            "secret": keys["secret"],
+                        }
+                        logger.debug("已从 YAML 加载 %s 的 API 密钥", ex_name)
+
             logger.info("配置已更新")
         except (ValueError, TypeError) as e:
             logger.error("更新配置失败: %s", e, exc_info=True)
@@ -206,9 +217,14 @@ class Config:
         将配置转换为字典
 
         Returns:
-            包含所有配置项的字典（不含 API 密钥）
+            包含所有配置项的字典（不含 API 密钥明文，仅含配置状态）
         """
-        return self.model.model_dump()
+        data = self.model.model_dump()
+        # 添加 API Key 配置状态（不暴露密钥本身）
+        data["api_key_status"] = {
+            ex: ex in self.api_keys for ex in self.model.exchanges
+        }
+        return data
 
     def get_exchange_fee(self, exchange: str) -> float:
         """

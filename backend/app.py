@@ -37,6 +37,7 @@ from .arbitrage import ArbitrageDetector
 from .config import Config, SUPPORTED_EXCHANGES
 from .executor import TradeExecutor
 from .models import ArbitrageOpportunity, OrderStatus, TradeResult
+from .risk_manager import RiskManager
 from .scanner import PriceScanner, WebSocketScanner
 
 # ----------------------------------------------------------------------------
@@ -59,6 +60,7 @@ config = Config(config_path=_config_path)
 scanner: Optional[PriceScanner] = None
 detector: Optional[ArbitrageDetector] = None
 executor: Optional[TradeExecutor] = None
+risk_manager: Optional[RiskManager] = None
 
 # 运行状态标志
 scanner_running = False
@@ -232,20 +234,33 @@ async def arbitrage_loop() -> None:
     while arbitrage_running:
         try:
             if latest_opportunities and executor:
-                # 执行利润最高的机会
                 best_op = latest_opportunities[0]
-                logger.info(
-                    "自动执行套利: %s 净利润率=%.4f%%",
-                    best_op.symbol, best_op.net_profit_rate * 100,
-                )
-                result = await executor.execute(best_op)
 
-                # 广播交易结果
-                await manager.broadcast({
-                    "type": "trade",
-                    "data": result.model_dump(),
-                    "timestamp": int(time.time() * 1000),
-                })
+                # 风控检查
+                if risk_manager and not risk_manager.check(best_op, latest_prices):
+                    logger.warning("自动套利被风控拒绝，跳过本轮")
+                else:
+                    logger.info(
+                        "自动执行套利: %s 净利润率=%.4f%%",
+                        best_op.symbol, best_op.net_profit_rate * 100,
+                    )
+
+                    # 记录交易开始
+                    if risk_manager:
+                        risk_manager.record_trade_start(best_op)
+
+                    result = await executor.execute(best_op)
+
+                    # 记录交易结束
+                    if risk_manager:
+                        risk_manager.record_trade_end(result)
+
+                    # 广播交易结果
+                    await manager.broadcast({
+                        "type": "trade",
+                        "data": result.model_dump(),
+                        "timestamp": int(time.time() * 1000),
+                    })
 
         except Exception as e:
             logger.error("自动套利循环异常: %s", e, exc_info=True)
@@ -262,13 +277,14 @@ async def arbitrage_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理，负责初始化和清理资源"""
-    global scanner, detector, executor, scanner_running, scanner_task
+    global scanner, detector, executor, risk_manager, scanner_running, scanner_task
 
     logger.info("OpenAlpha 套利系统启动中...")
 
-    # 初始化套利检测器和交易执行器
+    # 初始化套利检测器、交易执行器和风控管理器
     detector = ArbitrageDetector(config)
     executor = TradeExecutor(config, config.api_keys)
+    risk_manager = RiskManager(config)
 
     # 优先使用 WebSocket 实时扫描器，失败则回退到 REST 轮询
     try:
@@ -358,6 +374,10 @@ async def get_status() -> Dict[str, Any]:
         "trades_count": len(executor.trade_history) if executor else 0,
         "uptime_seconds": uptime,
         "paper_trade": config.model.paper_trade,
+        "api_key_status": {
+            ex: ex in config.api_keys for ex in config.model.exchanges
+        },
+        "risk_status": risk_manager.get_status() if risk_manager else None,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -482,7 +502,7 @@ async def get_trades(limit: int = 50) -> Dict[str, Any]:
 
 @app.post("/api/trades/execute")
 async def execute_trade(opportunity_data: Dict[str, Any]) -> Dict[str, Any]:
-    """手动执行单个套利机会"""
+    """手动执行单个套利机会（含风控检查）"""
     if not executor:
         return JSONResponse(
             status_code=500,
@@ -492,7 +512,24 @@ async def execute_trade(opportunity_data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # 从请求数据构建套利机会对象
         opportunity = ArbitrageOpportunity(**opportunity_data)
+
+        # 风控检查
+        if risk_manager and not risk_manager.check(opportunity, latest_prices):
+            return JSONResponse(
+                status_code=403,
+                content={"error": "风控拒绝，请检查风控状态"},
+            )
+
+        # 记录交易开始
+        if risk_manager:
+            risk_manager.record_trade_start(opportunity)
+
+        # 执行交易
         result = await executor.execute(opportunity)
+
+        # 记录交易结束
+        if risk_manager:
+            risk_manager.record_trade_end(result)
 
         # 广播交易结果
         await manager.broadcast({
@@ -531,6 +568,69 @@ async def get_exchanges() -> Dict[str, Any]:
         "exchanges": list(statuses.values()),
         "supported": SUPPORTED_EXCHANGES,
     }
+
+
+@app.get("/api/balances")
+async def get_balances() -> Dict[str, Any]:
+    """查询各交易所账户余额（需要配置 API Key）"""
+    if not executor:
+        return {"error": "执行器未初始化"}
+
+    if not config.api_keys:
+        return {
+            "balances": {},
+            "message": "未配置 API Key，请在 config.yaml 或环境变量中设置",
+        }
+
+    balances: Dict[str, Any] = {}
+    for ex_name in config.model.exchanges:
+        if ex_name not in config.api_keys:
+            balances[ex_name] = {"error": "未配置 API Key"}
+            continue
+
+        try:
+            exchange = executor._get_exchange(ex_name)
+            if exchange is None:
+                balances[ex_name] = {"error": "交易所实例创建失败"}
+                continue
+
+            balance = await exchange.fetch_balance()
+            # 只保留有余额的资产
+            free = balance.get("free", {})
+            used = balance.get("used", {})
+            total = balance.get("total", {})
+
+            assets = {}
+            for asset, amount in total.items():
+                if isinstance(amount, (int, float)) and amount > 0:
+                    assets[asset] = {
+                        "free": free.get(asset, 0),
+                        "used": used.get(asset, 0),
+                        "total": amount,
+                    }
+
+            balances[ex_name] = {"assets": assets}
+        except Exception as e:
+            balances[ex_name] = {"error": str(e)}
+
+    return {"balances": balances}
+
+
+@app.get("/api/risk/status")
+async def get_risk_status() -> Dict[str, Any]:
+    """获取风控管理器状态"""
+    if not risk_manager:
+        return {"error": "风控管理器未初始化"}
+    return risk_manager.get_status()
+
+
+@app.post("/api/risk/resume")
+async def resume_risk() -> Dict[str, Any]:
+    """恢复被风控暂停的交易"""
+    if not risk_manager:
+        return {"error": "风控管理器未初始化"}
+    risk_manager.resume()
+    return {"status": "ok", "message": "风控已恢复"}
 
 
 # ----------------------------------------------------------------------------

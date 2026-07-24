@@ -47,6 +47,21 @@ REQUEST_TIMEOUT_MS = 5000
 # WebSocket 重连等待时间（秒）
 WS_RECONNECT_DELAY = 1
 
+# WS 连续失败多少次后降级为 REST 轮询
+WS_FALLBACK_THRESHOLD = 3
+
+# REST 轮询间隔（秒）
+REST_POLL_INTERVAL = 5
+
+# REST 降级后多久尝试恢复 WS（秒）
+WS_RECOVERY_INTERVAL = 60
+
+# watch_tickers 超时时间（秒），超时视为失败
+WS_WATCH_TIMEOUT = 15
+
+# 已知 WebSocket 不稳定的交易所，强制使用 REST 轮询
+WS_BLACKLIST: set = {"bybit"}
+
 
 class PriceScanner:
     """
@@ -432,6 +447,12 @@ class WebSocketScanner:
         # 连接状态标记
         self._connected: Dict[str, bool] = {}
 
+        # WS 连续失败计数（用于决定是否降级为 REST）
+        self._ws_failures: Dict[str, int] = {}
+
+        # 是否正在使用 REST 降级模式
+        self._rest_mode: Dict[str, bool] = {}
+
         # 初始化交易所实例
         self._init_exchanges()
 
@@ -462,8 +483,12 @@ class WebSocketScanner:
                 self.error_counts[ex_name] = 0
                 self.latencies[ex_name] = 0.0
                 self._connected[ex_name] = False
+                self._ws_failures[ex_name] = 0
+                # 黑名单交易所直接使用 REST 模式
+                self._rest_mode[ex_name] = ex_name in WS_BLACKLIST
                 self.price_cache[ex_name] = {}
-                logger.debug("已初始化 WS 交易所: %s", ex_name)
+                mode = "REST" if ex_name in WS_BLACKLIST else "WebSocket"
+                logger.debug("已初始化 WS 交易所: %s (模式: %s)", ex_name, mode)
 
             except Exception as e:
                 logger.error("初始化 WS 交易所 %s 失败: %s", ex_name, e)
@@ -486,57 +511,144 @@ class WebSocketScanner:
         """
         监听单个交易所的 ticker 更新，实时更新内存缓存
 
-        该方法在后台持续运行，断线后自动重试。
-        ccxt.pro 内置自动重连机制，外层 while 提供额外保障。
+        优先使用 WebSocket，连续失败超过阈值后自动降级为 REST 轮询。
+        REST 模式下定期尝试恢复 WebSocket 连接。
         """
         exchange = self._exchange_instances.get(exchange_name)
         if exchange is None:
             return
 
-        logger.info("开始监听 %s 的 WebSocket ticker 流", exchange_name)
+        logger.info("开始监听 %s 的行情数据", exchange_name)
 
         while True:
-            try:
-                # watch_tickers 阻塞直到收到新数据
-                tickers = await exchange.watch_tickers(self.symbols)
+            # 判断当前模式
+            if self._rest_mode.get(exchange_name, False):
+                # REST 降级模式：轮询获取数据
+                await self._rest_poll_loop(exchange_name)
+            else:
+                # WebSocket 模式
+                await self._ws_watch_loop(exchange_name)
 
-                # 解析并更新缓存
-                updated = 0
-                for symbol, ticker in tickers.items():
-                    parsed = _parse_ticker(ticker)
-                    if parsed:
-                        self.price_cache[exchange_name][symbol] = parsed
-                        updated += 1
+    async def _ws_watch_loop(self, exchange_name: str) -> None:
+        """WebSocket 监听循环（单次尝试，失败后由外层决定是否降级）"""
+        exchange = self._exchange_instances.get(exchange_name)
+        if exchange is None:
+            return
 
-                # 更新状态
-                if updated > 0:
-                    self._connected[exchange_name] = True
-                    self.error_counts[exchange_name] = 0
+        try:
+            # watch_tickers 阻塞直到收到新数据，加超时防止无限阻塞
+            tickers = await asyncio.wait_for(
+                exchange.watch_tickers(self.symbols),
+                timeout=WS_WATCH_TIMEOUT,
+            )
 
-                    # 计算延迟：用最新 ticker 的 timestamp 与当前时间差
-                    latest_ts = max(
-                        (t.get("timestamp") or 0 for t in tickers.values() if t),
-                        default=0,
-                    )
-                    if latest_ts > 0:
-                        self.latencies[exchange_name] = round(
-                            max(0, time.time() * 1000 - latest_ts), 2
-                        )
+            # 解析并更新缓存
+            updated = 0
+            for symbol, ticker in tickers.items():
+                parsed = _parse_ticker(ticker)
+                if parsed:
+                    self.price_cache[exchange_name][symbol] = parsed
+                    updated += 1
 
-            except asyncio.CancelledError:
-                # 任务被取消（关闭时），正常退出
-                logger.info("%s 的 WebSocket 监听已停止", exchange_name)
-                break
+            # 更新状态
+            if updated > 0:
+                self._connected[exchange_name] = True
+                self.error_counts[exchange_name] = 0
+                self._ws_failures[exchange_name] = 0
 
-            except Exception as e:
-                # 记录错误，等待后重试
-                logger.warning("%s WebSocket 异常: %s，%d秒后重试",
-                               exchange_name, e, WS_RECONNECT_DELAY)
-                self.error_counts[exchange_name] = (
-                    self.error_counts.get(exchange_name, 0) + 1
+                # 计算延迟
+                latest_ts = max(
+                    (t.get("timestamp") or 0 for t in tickers.values() if t),
+                    default=0,
                 )
-                self._connected[exchange_name] = False
+                if latest_ts > 0:
+                    self.latencies[exchange_name] = round(
+                        max(0, time.time() * 1000 - latest_ts), 2
+                    )
+
+        except asyncio.CancelledError:
+            logger.info("%s 的监听已停止", exchange_name)
+            raise
+
+        except Exception as e:
+            self._ws_failures[exchange_name] = (
+                self._ws_failures.get(exchange_name, 0) + 1
+            )
+            self.error_counts[exchange_name] = (
+                self.error_counts.get(exchange_name, 0) + 1
+            )
+            self._connected[exchange_name] = False
+
+            failures = self._ws_failures[exchange_name]
+
+            # 连续失败超过阈值，降级为 REST
+            if failures >= WS_FALLBACK_THRESHOLD:
+                logger.warning(
+                    "%s WebSocket 连续失败 %d 次，降级为 REST 轮询",
+                    exchange_name, failures,
+                )
+                self._rest_mode[exchange_name] = True
+            else:
+                logger.warning(
+                    "%s WebSocket 异常: %s（第 %d 次），%d秒后重试",
+                    exchange_name, e, failures, WS_RECONNECT_DELAY,
+                )
                 await asyncio.sleep(WS_RECONNECT_DELAY)
+
+    async def _rest_poll_loop(self, exchange_name: str) -> None:
+        """REST 轮询循环（降级模式，黑名单交易所不恢复 WS）"""
+        exchange = self._exchange_instances.get(exchange_name)
+        if exchange is None:
+            return
+
+        start_time = time.time()
+
+        try:
+            # 用 REST 方式获取 tickers（ccxt.pro 实例继承 REST 方法）
+            tickers = await exchange.fetch_tickers(self.symbols)
+
+            # 解析并更新缓存
+            updated = 0
+            for symbol, ticker in tickers.items():
+                parsed = _parse_ticker(ticker)
+                if parsed:
+                    self.price_cache[exchange_name][symbol] = parsed
+                    updated += 1
+
+            if updated > 0:
+                self._connected[exchange_name] = True
+                self.error_counts[exchange_name] = 0
+
+                # 计算延迟（REST 请求耗时）
+                elapsed_ms = (time.time() - start_time) * 1000
+                self.latencies[exchange_name] = round(elapsed_ms, 2)
+
+        except asyncio.CancelledError:
+            logger.info("%s 的 REST 轮询已停止", exchange_name)
+            raise
+
+        except Exception as e:
+            logger.warning("%s REST 轮询失败: %s", exchange_name, e)
+            self.error_counts[exchange_name] = (
+                self.error_counts.get(exchange_name, 0) + 1
+            )
+
+        # 黑名单交易所不尝试恢复 WS
+        if exchange_name not in WS_BLACKLIST:
+            # 累计 REST 时间，超过阈值后尝试恢复 WS
+            if not hasattr(self, "_rest_start_times"):
+                self._rest_start_times: Dict[str, float] = {}
+            if exchange_name not in self._rest_start_times:
+                self._rest_start_times[exchange_name] = time.time()
+
+            rest_total = time.time() - self._rest_start_times.get(exchange_name, time.time())
+            if rest_total > WS_RECOVERY_INTERVAL:
+                logger.info("%s 尝试恢复 WebSocket 连接", exchange_name)
+                self._rest_mode[exchange_name] = False
+                self._ws_failures[exchange_name] = 0
+                self._rest_start_times.pop(exchange_name, None)
+
+        await asyncio.sleep(REST_POLL_INTERVAL)
 
     def get_prices(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
@@ -565,6 +677,7 @@ class WebSocketScanner:
                 "connected": self._connected.get(ex_name, False),
                 "error_count": self.error_counts.get(ex_name, 0),
                 "latency_ms": self.latencies.get(ex_name, 0.0),
+                "mode": "REST" if self._rest_mode.get(ex_name, False) else "WebSocket",
             }
         return status
 
