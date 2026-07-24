@@ -37,7 +37,7 @@ from .arbitrage import ArbitrageDetector
 from .config import Config, SUPPORTED_EXCHANGES
 from .executor import TradeExecutor
 from .models import ArbitrageOpportunity, OrderStatus, TradeResult
-from .scanner import PriceScanner
+from .scanner import PriceScanner, WebSocketScanner
 
 # ----------------------------------------------------------------------------
 # 日志配置
@@ -166,23 +166,32 @@ async def scanner_loop() -> None:
     """
     价格扫描循环
 
-    每隔 scan_interval 秒执行一次全量价格扫描，
+    WebSocket 模式：直接读缓存（无网络 I/O），每 scan_interval 秒广播一次
+    REST 模式：每 scan_interval 秒发起网络请求获取全量数据
     扫描完成后自动触发套利检测。
     """
     global latest_prices, latest_opportunities
 
-    logger.info("价格扫描循环已启动，间隔 %d 秒", config.model.scan_interval)
+    # 判断扫描器模式
+    use_websocket = hasattr(scanner, "get_prices")
+    mode_name = "WebSocket" if use_websocket else "REST"
+    logger.info("价格扫描循环已启动（%s 模式），间隔 %d 秒",
+                mode_name, config.model.scan_interval)
 
     while scanner_running:
         try:
             if scanner:
-                # 执行全量扫描
-                prices = await scanner.scan_all()
+                # WS 模式：读内存缓存；REST 模式：发网络请求
+                if use_websocket:
+                    prices = scanner.get_prices()
+                else:
+                    prices = await scanner.scan_all()
+
                 if prices:
                     latest_prices = prices
-                    logger.debug("价格扫描完成，获取 %d 个交易所数据", len(prices))
+                    logger.debug("价格数据已更新，%d 个交易所", len(prices))
 
-                    # 扫描完成后自动检测套利机会
+                    # 自动检测套利机会
                     if detector:
                         opportunities = detector.detect(prices)
                         latest_opportunities = opportunities
@@ -257,12 +266,22 @@ async def lifespan(app: FastAPI):
 
     logger.info("OpenAlpha 套利系统启动中...")
 
-    # 初始化核心组件
-    scanner = PriceScanner(
-        config.model.exchanges, config.model.symbols, config
-    )
+    # 初始化套利检测器和交易执行器
     detector = ArbitrageDetector(config)
     executor = TradeExecutor(config, config.api_keys)
+
+    # 优先使用 WebSocket 实时扫描器，失败则回退到 REST 轮询
+    try:
+        scanner = WebSocketScanner(
+            config.model.exchanges, config.model.symbols, config
+        )
+        await scanner.start()
+        logger.info("WebSocket 扫描器已启动")
+    except Exception as e:
+        logger.warning("WebSocket 初始化失败，回退到 REST: %s", e)
+        scanner = PriceScanner(
+            config.model.exchanges, config.model.symbols, config
+        )
 
     logger.info("系统初始化完成，服务端口 8070")
 

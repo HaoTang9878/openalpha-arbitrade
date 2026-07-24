@@ -44,7 +44,7 @@ DEFAULT_SYMBOLS: List[str] = [
 DEFAULT_CONFIG: Dict[str, Any] = {
     "min_profitability": 0.003,
     "order_amount": 0.01,
-    "scan_interval": 10,
+    "scan_interval": 3,
     "max_order_age": 180,
     "paper_trade": True,
     "fee_rate": 0.001,

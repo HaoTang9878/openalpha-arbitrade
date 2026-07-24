@@ -9,6 +9,7 @@ services:
       - "127.0.0.1:8070:8070"
     environment:
       - TZ=Asia/Shanghai
-    mem_limit: 256m
+    mem_limit: 512m
     volumes:
       - ./data:/app/data
+      - ./config.yaml:/app/config.yaml
