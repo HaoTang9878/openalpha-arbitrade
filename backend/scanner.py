@@ -93,10 +93,15 @@ class PriceScanner:
                     continue
 
                 # 构建交易所配置
+                # fetchMarkets 限制只加载现货市场，避免 CCXT 尝试
+                # 加载期货/期权/合约市场导致网络错误
                 exchange_config: Dict[str, Any] = {
                     "enableRateLimit": True,
                     "timeout": REQUEST_TIMEOUT_MS,
-                    "options": {"defaultType": "spot"},
+                    "options": {
+                        "defaultType": "spot",
+                        "fetchMarkets": ["spot"],
+                    },
                 }
 
                 # 如果有 API 密钥则注入配置
