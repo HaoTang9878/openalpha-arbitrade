@@ -52,7 +52,9 @@ logger = logging.getLogger("openalpha")
 # ----------------------------------------------------------------------------
 # 全局状态
 # ----------------------------------------------------------------------------
-config = Config()
+# 自动加载 config.yaml（如果存在）
+_config_path = str(Path(__file__).parent.parent / "config.yaml")
+config = Config(config_path=_config_path)
 
 scanner: Optional[PriceScanner] = None
 detector: Optional[ArbitrageDetector] = None
