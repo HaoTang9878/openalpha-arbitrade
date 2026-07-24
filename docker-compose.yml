@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  arbitrage:
+    build: .
+    container_name: openalpha-arbitrage
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8070:8070"
+    environment:
+      - TZ=Asia/Shanghai
+    mem_limit: 256m
+    volumes:
+      - ./data:/app/data

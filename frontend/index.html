@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAlpha 套利交易系统</title>
+    <style>
+        /* ==================== 全局重置与基础样式 ==================== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+            color: #E2E8F0;
+            min-height: 100vh;
+        }
+
+        /* ==================== 顶部导航栏 ==================== */
+        .navbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 32px;
+            background: rgba(15, 23, 42, 0.9);
+            border-bottom: 1px solid #334155;
+            backdrop-filter: blur(10px);
+        }
+
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .navbar-brand h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: #32F08C;
+            letter-spacing: 0.5px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #94A3B8;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #64748B;
+            transition: background 0.3s;
+        }
+
+        .status-dot.active {
+            background: #32F08C;
+            box-shadow: 0 0 8px #32F08C;
+        }
+
+        .navbar-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        /* ==================== 按钮样式 ==================== */
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #32F08C;
+            color: #0F172A;
+        }
+
+        .btn-primary:hover {
+            background: #28D677;
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background: #EF4444;
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #DC2626;
+        }
+
+        .btn-secondary {
+            background: #334155;
+            color: #E2E8F0;
+        }
+
+        .btn-secondary:hover {
+            background: #475569;
+        }
+
+        .btn-sm {
+            padding: 4px 12px;
+            font-size: 12px;
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* ==================== 统计卡片行 ==================== */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            padding: 24px 32px;
+        }
+
+        .stat-card {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-card .label {
+            font-size: 13px;
+            color: #94A3B8;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #32F08C;
+        }
+
+        .stat-card .sub {
+            font-size: 12px;
+            color: #64748B;
+            margin-top: 4px;
+        }
+
+        /* ==================== 主内容区 ==================== */
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 20px;
+            padding: 0 32px 24px;
+        }
+
+        /* ==================== 面板通用样式 ==================== */
+        .panel {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid #334155;
+        }
+
+        .panel-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #E2E8F0;
+        }
+
+        .panel-body {
+            padding: 16px 20px;
+            max-height: 480px;
+            overflow-y: auto;
+        }
+
+        /* ==================== 价格表 ==================== */
+        .price-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .price-table th {
+            text-align: left;
+            padding: 10px 8px;
+            color: #94A3B8;
+            font-weight: 600;
+            border-bottom: 1px solid #334155;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            background: #1E293B;
+            z-index: 1;
+        }
+
+        .price-table td {
+            padding: 8px;
+            border-bottom: 1px solid #1E293B;
+            white-space: nowrap;
+        }
+
+        .price-table tr:hover {
+            background: rgba(50, 240, 140, 0.05);
+        }
+
+        .price-up {
+            color: #32F08C;
+        }
+
+        .price-down {
+            color: #EF4444;
+        }
+
+        .spread-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .spread-positive {
+            background: rgba(50, 240, 140, 0.15);
+            color: #32F08C;
+        }
+
+        .spread-negative {
+            background: rgba(239, 68, 68, 0.15);
+            color: #EF4444;
+        }
+
+        /* ==================== 套利机会卡片 ==================== */
+        .opportunity-card {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s;
+        }
+
+        .opportunity-card:hover {
+            border-color: #32F08C;
+        }
+
+        .opp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .opp-symbol {
+            font-size: 15px;
+            font-weight: 700;
+            color: #E2E8F0;
+        }
+
+        .opp-route {
+            font-size: 12px;
+            color: #94A3B8;
+            margin-bottom: 6px;
+        }
+
+        .opp-route .arrow {
+            color: #32F08C;
+            font-weight: 700;
+        }
+
+        .opp-prices {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .opp-prices .buy {
+            color: #EF4444;
+        }
+
+        .opp-prices .sell {
+            color: #32F08C;
+        }
+
+        .opp-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .opp-profit {
+            font-size: 14px;
+            font-weight: 700;
+            color: #32F08C;
+        }
+
+        .risk-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .risk-low {
+            background: rgba(50, 240, 140, 0.15);
+            color: #32F08C;
+        }
+
+        .risk-medium {
+            background: rgba(251, 191, 36, 0.15);
+            color: #FBBF24;
+        }
+
+        .risk-high {
+            background: rgba(239, 68, 68, 0.15);
+            color: #EF4444;
+        }
+
+        /* ==================== 交易历史 ==================== */
+        .trade-item {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 80px;
+            gap: 8px;
+            padding: 8px 0;
+            border-bottom: 1px solid #1E293B;
+            font-size: 12px;
+        }
+
+        .trade-item:last-child {
+            border-bottom: none;
+        }
+
+        .trade-status {
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .status-filled {
+            color: #32F08C;
+        }
+
+        .status-failed {
+            color: #EF4444;
+        }
+
+        .status-pending {
+            color: #FBBF24;
+        }
+
+        /* ==================== 设置面板 ==================== */
+        .settings-panel {
+            margin-bottom: 20px;
+        }
+
+        .settings-body {
+            padding: 20px;
+            display: none;
+        }
+
+        .settings-body.open {
+            display: block;
+        }
+
+        .setting-group {
+            margin-bottom: 16px;
+        }
+
+        .setting-group label {
+            display: block;
+            font-size: 13px;
+            color: #94A3B8;
+            margin-bottom: 6px;
+        }
+
+        .setting-group input[type="number"],
+        .setting-group input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid #334155;
+            border-radius: 6px;
+            color: #E2E8F0;
+            font-size: 14px;
+        }
+
+        .setting-group input[type="range"] {
+            width: 100%;
+        }
+
+        .setting-group .range-value {
+            font-size: 14px;
+            color: #32F08C;
+            font-weight: 600;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #94A3B8;
+            background: rgba(15, 23, 42, 0.6);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid #334155;
+            cursor: pointer;
+        }
+
+        .checkbox-item input {
+            margin: 0;
+        }
+
+        .checkbox-item.checked {
+            border-color: #32F08C;
+            color: #32F08C;
+        }
+
+        /* ==================== 开关样式 ==================== */
+        .toggle {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #334155;
+            border-radius: 24px;
+            transition: 0.3s;
+        }
+
+        .toggle-slider:before {
+            content: "";
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: #E2E8F0;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background: #32F08C;
+        }
+
+        .toggle input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+            background: #0F172A;
+        }
+
+        /* ==================== 空状态 ==================== */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #64748B;
+            font-size: 14px;
+        }
+
+        /* ==================== 滚动条样式 ==================== */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
+        /* ==================== 响应式 ==================== */
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 600px) {
+            .stats-row {
+                grid-template-columns: 1fr;
+            }
+
+            .navbar {
+                padding: 12px 16px;
+            }
+
+            .main-content {
+                padding: 0 16px 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- ==================== 顶部导航栏 ==================== -->
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <h1>OpenAlpha 套利交易系统</h1>
+            <div class="status-indicator">
+                <span class="status-dot" id="systemStatusDot"></span>
+                <span id="systemStatusText">未运行</span>
+            </div>
+        </div>
+        <div class="navbar-actions">
+            <button class="btn btn-primary" id="startMonitorBtn" onclick="toggleMonitor()">
+                开始监控
+            </button>
+            <button class="btn btn-danger" id="stopMonitorBtn" onclick="toggleMonitor()" style="display:none;">
+                停止监控
+            </button>
+        </div>
+    </nav>
+
+    <!-- ==================== 统计卡片行 ==================== -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="label">监控交易所</div>
+            <div class="value" id="statExchanges">0</div>
+            <div class="sub">个交易所</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">监控交易对</div>
+            <div class="value" id="statSymbols">0</div>
+            <div class="sub">个交易对</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">套利机会</div>
+            <div class="value" id="statOpportunities">0</div>
+            <div class="sub">个机会</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">今日交易</div>
+            <div class="value" id="statTrades">0</div>
+            <div class="sub">笔交易</div>
+        </div>
+    </div>
+
+    <!-- ==================== 主内容区 ==================== -->
+    <div class="main-content">
+        <!-- 左侧：价格表 + 交易历史 -->
+        <div>
+            <!-- 价格对比表 -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>价格对比</h2>
+                    <span style="font-size:12px;color:#64748B;" id="priceUpdateTime">--</span>
+                </div>
+                <div class="panel-body">
+                    <table class="price-table" id="priceTable">
+                        <thead>
+                            <tr id="priceTableHeader"></tr>
+                        </thead>
+                        <tbody id="priceTableBody">
+                            <tr><td colspan="99" class="empty-state">等待数据加载...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 交易历史 -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>交易历史</h2>
+                    <span style="font-size:12px;color:#64748B;">最近 50 笔</span>
+                </div>
+                <div class="panel-body">
+                    <div id="tradeHistory">
+                        <div class="empty-state">暂无交易记录</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 设置面板 -->
+            <div class="panel settings-panel">
+                <div class="panel-header">
+                    <h2>系统设置</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="toggleSettings()">
+                        展开/收起
+                    </button>
+                </div>
+                <div class="settings-body" id="settingsBody">
+                    <div class="setting-group">
+                        <label>最小利润率: <span class="range-value" id="minProfitValue">0.30%</span></label>
+                        <input type="range" min="0.1" max="2" step="0.1" value="0.3"
+                               id="minProfitSlider" oninput="onMinProfitChange()">
+                    </div>
+                    <div class="setting-group">
+                        <label>下单量（基础货币）</label>
+                        <input type="number" step="0.001" min="0.001" value="0.01"
+                               id="orderAmountInput" onchange="saveConfig()">
+                    </div>
+                    <div class="setting-group">
+                        <label>扫描间隔（秒）</label>
+                        <input type="number" step="1" min="1" max="300" value="10"
+                               id="scanIntervalInput" onchange="saveConfig()">
+                    </div>
+                    <div class="setting-group">
+                        <label>模拟交易模式</label>
+                        <label class="toggle">
+                            <input type="checkbox" id="paperTradeToggle" checked onchange="saveConfig()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-group">
+                        <label>交易所选择</label>
+                        <div class="checkbox-group" id="exchangeCheckboxes"></div>
+                    </div>
+                    <div class="setting-group">
+                        <label>交易对选择</label>
+                        <div class="checkbox-group" id="symbolCheckboxes"></div>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveConfig()">保存设置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：套利机会面板 -->
+        <div>
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>套利机会</h2>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:12px;color:#94A3B8;">自动执行</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="autoExecuteToggle" onchange="toggleAutoExecute()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="panel-body" id="opportunitiesPanel">
+                    <div class="empty-state">等待检测套利机会...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 全局状态 ====================
+        let ws = null;
+        let isMonitorRunning = false;
+        let isAutoExecute = false;
+        let currentExchanges = [];
+        let currentSymbols = [];
+        let latestPriceData = {};
+        let priceRefreshTimer = null;
+        let oppRefreshTimer = null;
+
+        const API_BASE = window.location.origin;
+
+        // ==================== WebSocket 连接 ====================
+        /**
+         * 建立 WebSocket 连接，接收实时数据推送
+         */
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.host}/ws`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                console.log("WebSocket 已连接");
+                // 启动心跳保活
+                setInterval(function() {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send("ping");
+                    }
+                }, 30000);
+            };
+
+            ws.onmessage = function(event) {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+
+            ws.onerror = function(error) {
+                console.error("WebSocket 错误:", error);
+            };
+
+            ws.onclose = function() {
+                console.log("WebSocket 已断开，3秒后重连...");
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        /**
+         * 处理 WebSocket 接收到的消息
+         */
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case "status":
+                    updateSystemStatus(msg.data);
+                    break;
+                case "prices":
+                    latestPriceData = msg.data;
+                    renderPriceTable(msg.data);
+                    document.getElementById("priceUpdateTime").textContent =
+                        "更新于 " + new Date().toLocaleTimeString();
+                    break;
+                case "opportunities":
+                    renderOpportunities(msg.data);
+                    break;
+                case "trade":
+                    addTradeToHistory(msg.data);
+                    refreshStats();
+                    break;
+            }
+        }
+
+        // ==================== 系统状态更新 ====================
+        /**
+         * 更新系统状态显示
+         */
+        function updateSystemStatus(status) {
+            document.getElementById("statExchanges").textContent = status.exchanges_count || 0;
+            document.getElementById("statSymbols").textContent = status.symbols_count || 0;
+            document.getElementById("statOpportunities").textContent = status.opportunities_count || 0;
+            document.getElementById("statTrades").textContent = status.trades_count || 0;
+
+            const dot = document.getElementById("systemStatusDot");
+            const text = document.getElementById("systemStatusText");
+
+            if (status.scanner_running) {
+                dot.classList.add("active");
+                text.textContent = "运行中";
+            } else {
+                dot.classList.remove("active");
+                text.textContent = "未运行";
+            }
+        }
+
+        // ==================== 价格表渲染 ====================
+        /**
+         * 渲染价格对比表
+         */
+        function renderPriceTable(prices) {
+            if (!prices || Object.keys(prices).length === 0) return;
+
+            const exchanges = Object.keys(prices);
+            currentExchanges = exchanges;
+
+            // 构建表头
+            const headerRow = document.getElementById("priceTableHeader");
+            let headerHtml = "<th>交易对</th>";
+            exchanges.forEach(function(ex) {
+                headerHtml += `<th>${ex}</th>`;
+            });
+            headerHtml += "<th>最大价差</th><th>价差%</th>";
+            headerRow.innerHTML = headerHtml;
+
+            // 收集所有交易对
+            const allSymbols = new Set();
+            exchanges.forEach(function(ex) {
+                if (prices[ex]) {
+                    Object.keys(prices[ex]).forEach(function(sym) {
+                        allSymbols.add(sym);
+                    });
+                }
+            });
+
+            // 构建表格内容
+            const tbody = document.getElementById("priceTableBody");
+            let bodyHtml = "";
+
+            allSymbols.forEach(function(symbol) {
+                let prices_row = `<td style="font-weight:600;color:#32F08C;">${symbol}</td>`;
+                let minAsk = Infinity;
+                let maxBid = -Infinity;
+                let minAskExchange = "";
+                let maxBidExchange = "";
+
+                exchanges.forEach(function(ex) {
+                    const ticker = prices[ex] && prices[ex][symbol];
+                    if (ticker) {
+                        const ask = ticker.ask;
+                        const bid = ticker.bid;
+                        if (ask > 0 && ask < minAsk) {
+                            minAsk = ask;
+                            minAskExchange = ex;
+                        }
+                        if (bid > 0 && bid > maxBid) {
+                            maxBid = bid;
+                            maxBidExchange = ex;
+                        }
+                        prices_row += `<td><div style="font-size:12px;">
+                            <span style="color:#EF4444;">卖:${formatPrice(ask)}</span><br>
+                            <span style="color:#32F08C;">买:${formatPrice(bid)}</span>
+                        </div></td>`;
+                    } else {
+                        prices_row += "<td style='color:#475569;'>--</td>";
+                    }
+                });
+
+                // 计算最大价差
+                let spreadHtml = "";
+                if (minAsk < Infinity && maxBid > -Infinity && minAskExchange !== maxBidExchange) {
+                    const spread = maxBid - minAsk;
+                    const spreadPct = (spread / minAsk * 100);
+                    const cls = spread > 0 ? "spread-positive" : "spread-negative";
+                    spreadHtml = `<td class="${cls}" style="font-size:12px;">
+                        ${minAskExchange}->${maxBidExchange}<br>
+                        <span style="font-weight:600;">${formatPrice(spread)}</span>
+                    </td><td><span class="spread-badge ${cls}">${spreadPct.toFixed(3)}%</span></td>`;
+                } else {
+                    spreadHtml = "<td style='color:#475569;'>--</td><td style='color:#475569;'>--</td>";
+                }
+
+                bodyHtml += `<tr>${prices_row}${spreadHtml}</tr>`;
+            });
+
+            tbody.innerHTML = bodyHtml || '<tr><td colspan="99" class="empty-state">无价格数据</td></tr>';
+        }
+
+        // ==================== 套利机会渲染 ====================
+        /**
+         * 渲染套利机会列表
+         */
+        function renderOpportunities(opportunities) {
+            const panel = document.getElementById("opportunitiesPanel");
+            document.getElementById("statOpportunities").textContent = opportunities.length;
+
+            if (!opportunities || opportunities.length === 0) {
+                panel.innerHTML = '<div class="empty-state">暂无套利机会</div>';
+                return;
+            }
+
+            let html = "";
+            opportunities.forEach(function(opp) {
+                const profitPct = (opp.net_profit_rate * 100).toFixed(3);
+                const profitUsd = opp.estimated_profit.toFixed(4);
+                const riskClass = "risk-" + (opp.risk_level || "medium");
+
+                html += `<div class="opportunity-card">
+                    <div class="opp-header">
+                        <span class="opp-symbol">${opp.symbol}</span>
+                        <span class="risk-badge ${riskClass}">${opp.risk_level || "medium"}</span>
+                    </div>
+                    <div class="opp-route">
+                        买入: ${opp.buy_exchange} <span class="arrow">-></span> 卖出: ${opp.sell_exchange}
+                    </div>
+                    <div class="opp-prices">
+                        <span class="buy">买价: ${formatPrice(opp.buy_price)}</span>
+                        <span class="sell">卖价: ${formatPrice(opp.sell_price)}</span>
+                    </div>
+                    <div class="opp-footer">
+                        <span class="opp-profit">+${profitPct}% (${profitUsd} USDT)</span>
+                        <button class="btn btn-primary btn-sm" onclick='executeOpportunity(${JSON.stringify(opp)})'>执行</button>
+                    </div>
+                </div>`;
+            });
+
+            panel.innerHTML = html;
+        }
+
+        // ==================== 交易历史渲染 ====================
+        /**
+         * 添加一笔交易到历史列表
+         */
+        function addTradeToHistory(trade) {
+            const container = document.getElementById("tradeHistory");
+            if (container.querySelector(".empty-state")) {
+                container.innerHTML = "";
+            }
+
+            const statusClass = "status-" + (trade.status || "pending");
+            const profitStr = trade.profit ? trade.profit.toFixed(4) + " USDT" : "--";
+            const tradeType = trade.paper_trade ? "模拟" : "实盘";
+
+            const item = document.createElement("div");
+            item.className = "trade-item";
+            item.innerHTML = `
+                <div>${trade.timestamp || '--'}</div>
+                <div style="color:#94A3B8;">${trade.symbol}</div>
+                <div style="font-size:11px;color:#64748B;">${tradeType} ${trade.buy_exchange}->${trade.sell_exchange}</div>
+                <div class="trade-status ${statusClass}">${trade.status || 'pending'}</div>
+            `;
+            container.insertBefore(item, container.firstChild);
+
+            // 最多显示 50 条
+            while (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        /**
+         * 从 API 加载交易历史
+         */
+        async function loadTradeHistory() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/trades?limit=50`);
+                const data = await resp.json();
+                const container = document.getElementById("tradeHistory");
+
+                if (!data.trades || data.trades.length === 0) {
+                    container.innerHTML = '<div class="empty-state">暂无交易记录</div>';
+                    return;
+                }
+
+                let html = "";
+                data.trades.forEach(function(trade) {
+                    const statusClass = "status-" + (trade.status || "pending");
+                    const tradeType = trade.paper_trade ? "模拟" : "实盘";
+                    html += `<div class="trade-item">
+                        <div>${trade.timestamp || '--'}</div>
+                        <div style="color:#94A3B8;">${trade.symbol}</div>
+                        <div style="font-size:11px;color:#64748B;">${tradeType} ${trade.buy_exchange}->${trade.sell_exchange}</div>
+                        <div class="trade-status ${statusClass}">${trade.status || 'pending'}</div>
+                    </div>`;
+                });
+                container.innerHTML = html;
+            } catch (e) {
+                console.error("加载交易历史失败:", e);
+            }
+        }
+
+        // ==================== API 调用 ====================
+        /**
+         * 刷新统计数据
+         */
+        async function refreshStats() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/status`);
+                const status = await resp.json();
+                updateSystemStatus(status);
+            } catch (e) {
+                console.error("获取状态失败:", e);
+            }
+        }
+
+        /**
+         * 从 API 获取最新价格
+         */
+        async function fetchPrices() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/prices`);
+                const data = await resp.json();
+                if (data.prices) {
+                    latestPriceData = data.prices;
+                    renderPriceTable(data.prices);
+                    document.getElementById("priceUpdateTime").textContent =
+                        "更新于 " + new Date().toLocaleTimeString();
+                }
+            } catch (e) {
+                console.error("获取价格失败:", e);
+            }
+        }
+
+        /**
+         * 从 API 获取套利机会
+         */
+        async function fetchOpportunities() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/opportunities`);
+                const data = await resp.json();
+                renderOpportunities(data.opportunities || []);
+            } catch (e) {
+                console.error("获取机会失败:", e);
+            }
+        }
+
+        /**
+         * 切换监控状态（启动/停止）
+         */
+        async function toggleMonitor() {
+            if (!isMonitorRunning) {
+                await fetch(`${API_BASE}/api/scanner/start`, {method: "POST"});
+                isMonitorRunning = true;
+                document.getElementById("startMonitorBtn").style.display = "none";
+                document.getElementById("stopMonitorBtn").style.display = "";
+            } else {
+                await fetch(`${API_BASE}/api/scanner/stop`, {method: "POST"});
+                await fetch(`${API_BASE}/api/arbitrage/stop`, {method: "POST"});
+                isMonitorRunning = false;
+                isAutoExecute = false;
+                document.getElementById("autoExecuteToggle").checked = false;
+                document.getElementById("startMonitorBtn").style.display = "";
+                document.getElementById("stopMonitorBtn").style.display = "none";
+            }
+            refreshStats();
+        }
+
+        /**
+         * 切换自动执行
+         */
+        async function toggleAutoExecute() {
+            const enabled = document.getElementById("autoExecuteToggle").checked;
+            if (enabled) {
+                await fetch(`${API_BASE}/api/arbitrage/start`, {method: "POST"});
+                isAutoExecute = true;
+            } else {
+                await fetch(`${API_BASE}/api/arbitrage/stop`, {method: "POST"});
+                isAutoExecute = false;
+            }
+        }
+
+        /**
+         * 手动执行单个套利机会
+         */
+        async function executeOpportunity(opp) {
+            if (!confirm(`确认执行 ${opp.symbol} 套利？\n买入: ${opp.buy_exchange} @ ${opp.buy_price}\n卖出: ${opp.sell_exchange} @ ${opp.sell_price}`)) {
+                return;
+            }
+            try {
+                const resp = await fetch(`${API_BASE}/api/trades/execute`, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(opp),
+                });
+                const result = await resp.json();
+                if (result.status === "ok") {
+                    alert("交易已提交: " + (result.result.status || "完成"));
+                    refreshStats();
+                    loadTradeHistory();
+                } else {
+                    alert("交易失败: " + (result.error || "未知错误"));
+                }
+            } catch (e) {
+                alert("请求失败: " + e.message);
+            }
+        }
+
+        // ==================== 设置面板 ====================
+        /**
+         * 展开/收起设置面板
+         */
+        function toggleSettings() {
+            document.getElementById("settingsBody").classList.toggle("open");
+        }
+
+        /**
+         * 最小利润率滑块变化
+         */
+        function onMinProfitChange() {
+            const val = document.getElementById("minProfitSlider").value;
+            document.getElementById("minProfitValue").textContent = val + "%";
+        }
+
+        /**
+         * 保存配置到后端
+         */
+        async function saveConfig() {
+            const minProfit = parseFloat(document.getElementById("minProfitSlider").value) / 100;
+            const orderAmount = parseFloat(document.getElementById("orderAmountInput").value);
+            const scanInterval = parseInt(document.getElementById("scanIntervalInput").value);
+            const paperTrade = document.getElementById("paperTradeToggle").checked;
+
+            const exchanges = [];
+            document.querySelectorAll("#exchangeCheckboxes input:checked").forEach(function(cb) {
+                exchanges.push(cb.value);
+            });
+
+            const symbols = [];
+            document.querySelectorAll("#symbolCheckboxes input:checked").forEach(function(cb) {
+                symbols.push(cb.value);
+            });
+
+            try {
+                await fetch(`${API_BASE}/api/config`, {
+                    method: "PUT",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        min_profitability: minProfit,
+                        order_amount: orderAmount,
+                        scan_interval: scanInterval,
+                        paper_trade: paperTrade,
+                        exchanges: exchanges,
+                        symbols: symbols,
+                    }),
+                });
+                alert("配置已保存");
+                refreshStats();
+            } catch (e) {
+                alert("保存失败: " + e.message);
+            }
+        }
+
+        /**
+         * 初始化设置面板的交易所和交易对复选框
+         */
+        async function initSettings() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/config`);
+                const cfg = await resp.json();
+
+                // 设置滑块
+                document.getElementById("minProfitSlider").value = (cfg.min_profitability * 100).toFixed(1);
+                document.getElementById("minProfitValue").textContent = (cfg.min_profitability * 100).toFixed(1) + "%";
+                document.getElementById("orderAmountInput").value = cfg.order_amount;
+                document.getElementById("scanIntervalInput").value = cfg.scan_interval;
+                document.getElementById("paperTradeToggle").checked = cfg.paper_trade;
+
+                // 交易所复选框
+                const exContainer = document.getElementById("exchangeCheckboxes");
+                exContainer.innerHTML = "";
+                const allExchanges = cfg.exchanges || [];
+                allExchanges.forEach(function(ex) {
+                    const div = document.createElement("label");
+                    div.className = "checkbox-item checked";
+                    div.innerHTML = `<input type="checkbox" value="${ex}" checked> ${ex}`;
+                    exContainer.appendChild(div);
+                });
+
+                // 交易对复选框
+                const symContainer = document.getElementById("symbolCheckboxes");
+                symContainer.innerHTML = "";
+                const allSymbols = cfg.symbols || [];
+                allSymbols.forEach(function(sym) {
+                    const div = document.createElement("label");
+                    div.className = "checkbox-item checked";
+                    div.innerHTML = `<input type="checkbox" value="${sym}" checked> ${sym}`;
+                    symContainer.appendChild(div);
+                });
+
+                // 复选框变化时更新样式
+                document.querySelectorAll('.checkbox-item input').forEach(function(cb) {
+                    cb.addEventListener('change', function() {
+                        this.parentElement.classList.toggle('checked', this.checked);
+                    });
+                });
+            } catch (e) {
+                console.error("初始化设置失败:", e);
+            }
+        }
+
+        // ==================== 工具函数 ====================
+        /**
+         * 格式化价格显示
+         */
+        function formatPrice(price) {
+            if (!price || price === 0) return "--";
+            if (price < 0.01) return price.toFixed(6);
+            if (price < 1) return price.toFixed(4);
+            if (price < 100) return price.toFixed(3);
+            return price.toFixed(2);
+        }
+
+        // ==================== 初始化 ====================
+        /**
+         * 页面加载完成后初始化
+         */
+        async function init() {
+            // 建立 WebSocket 连接
+            connectWebSocket();
+
+            // 初始化设置面板
+            initSettings();
+
+            // 刷新状态
+            refreshStats();
+
+            // 加载交易历史
+            loadTradeHistory();
+
+            // 启动定时器：每 3 秒获取价格
+            priceRefreshTimer = setInterval(fetchPrices, 3000);
+
+            // 启动定时器：每 5 秒获取套利机会
+            oppRefreshTimer = setInterval(fetchOpportunities, 5000);
+
+            // 启动定时器：每 10 秒刷新状态
+            setInterval(refreshStats, 10000);
+        }
+
+        // 页面加载完成后执行初始化
+        window.addEventListener("load", init);
+    </script>
+</body>
+</html>
