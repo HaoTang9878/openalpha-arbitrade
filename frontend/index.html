@@ -533,10 +533,251 @@
             .main-content {
                 padding: 0 16px 16px;
             }
+
+            .app-wrapper {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+                border-right: none;
+                border-bottom: 1px solid #334155;
+                flex-direction: row;
+                overflow-x: auto;
+            }
+        }
+
+        /* ==================== 侧边栏 ==================== */
+        .app-wrapper {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 220px;
+            min-width: 220px;
+            background: rgba(15, 23, 42, 0.95);
+            border-right: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .sidebar-brand {
+            padding: 20px 16px;
+            border-bottom: 1px solid #334155;
+        }
+
+        .sidebar-brand h2 {
+            font-size: 16px;
+            font-weight: 700;
+            color: #32F08C;
+        }
+
+        .sidebar-brand p {
+            font-size: 11px;
+            color: #64748B;
+            margin-top: 4px;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 12px 8px;
+            overflow-y: auto;
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #94A3B8;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-bottom: 2px;
+        }
+
+        .sidebar-nav a:hover {
+            background: rgba(51, 65, 85, 0.5);
+            color: #E2E8F0;
+        }
+
+        .sidebar-nav a.active {
+            background: rgba(50, 240, 140, 0.1);
+            color: #32F08C;
+            border-left: 2px solid #32F08C;
+        }
+
+        .sidebar-nav .nav-icon {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .sidebar-footer {
+            padding: 12px 16px;
+            border-top: 1px solid #334155;
+            font-size: 11px;
+            color: #475569;
+        }
+
+        .content-area {
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* ==================== 更新日志页面 ==================== */
+        .changelog-view {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 32px;
+        }
+
+        .changelog-view h1 {
+            font-size: 26px;
+            font-weight: 700;
+            color: #E2E8F0;
+            margin-bottom: 6px;
+        }
+
+        .changelog-view .subtitle {
+            font-size: 14px;
+            color: #64748B;
+            margin-bottom: 32px;
+        }
+
+        .changelog-day {
+            margin-bottom: 32px;
+        }
+
+        .changelog-day-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .changelog-day-header h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #E2E8F0;
+        }
+
+        .changelog-day-header .weekday {
+            font-size: 13px;
+            color: #64748B;
+        }
+
+        .changelog-day-header .count-badge {
+            font-size: 11px;
+            color: #94A3B8;
+            background: rgba(51, 65, 85, 0.6);
+            padding: 2px 8px;
+            border-radius: 999px;
+        }
+
+        .changelog-day-header .divider {
+            flex: 1;
+            height: 1px;
+            background: #334155;
+        }
+
+        .changelog-entry {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .changelog-entry-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .changelog-entry .time {
+            font-family: monospace;
+            font-size: 13px;
+            color: #64748B;
+        }
+
+        .changelog-entry .tag {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid;
+        }
+
+        .tag-update {
+            background: rgba(59, 130, 246, 0.15);
+            color: #93C5FD;
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .tag-optimize {
+            background: rgba(50, 240, 140, 0.15);
+            color: #6EE7B7;
+            border-color: rgba(50, 240, 140, 0.4);
+        }
+
+        .tag-fix {
+            background: rgba(251, 146, 60, 0.15);
+            color: #FDBA74;
+            border-color: rgba(251, 146, 60, 0.4);
+        }
+
+        .changelog-entry h3 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #E2E8F0;
+            margin-bottom: 4px;
+        }
+
+        .changelog-entry p {
+            font-size: 13px;
+            color: #94A3B8;
+            line-height: 1.6;
+        }
+
+        .hidden-view {
+            display: none;
         }
     </style>
 </head>
 <body>
+    <div class="app-wrapper">
+    <!-- ==================== 左侧侧边栏 ==================== -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <h2>OpenAlpha</h2>
+            <p>套利交易系统</p>
+        </div>
+        <nav class="sidebar-nav">
+            <a onclick="switchView('dashboard')" id="navDashboard" class="active">
+                <span class="nav-icon">&#128202;</span> 仪表盘
+            </a>
+            <a onclick="switchView('changelog')" id="navChangelog">
+                <span class="nav-icon">&#128197;</span> 更新日志
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            v1.0.0 &middot; 2026-07
+        </div>
+    </aside>
+
+    <!-- ==================== 内容区域 ==================== -->
+    <div class="content-area">
+    <!-- ==================== 仪表盘视图 ==================== -->
+    <div id="dashboardView">
     <!-- ==================== 顶部导航栏 ==================== -->
     <nav class="navbar">
         <div class="navbar-brand">
@@ -678,6 +919,199 @@
             </div>
         </div>
     </div>
+    </div><!-- /dashboardView -->
+
+    <!-- ==================== 更新日志视图 ==================== -->
+    <div id="changelogView" class="hidden-view">
+        <div class="changelog-view">
+            <h1>更新日志</h1>
+            <p class="subtitle">最近发生了什么 — 新功能、优化和修复，都写在这里。</p>
+
+            <!-- 7月24日 -->
+            <div class="changelog-day">
+                <div class="changelog-day-header">
+                    <h2>2026-07-24</h2>
+                    <span class="weekday">周四</span>
+                    <span class="count-badge">3 条</span>
+                    <div class="divider"></div>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">22:00</span>
+                        <span class="tag tag-fix">修复</span>
+                    </div>
+                    <h3>限制 CCXT 仅加载现货市场</h3>
+                    <p>修复误加载合约/期权市场导致价格数据异常的问题，scanner 现在只获取 spot 类型的交易对。</p>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">18:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>Docker 部署 + 文档完善</h3>
+                    <p>添加 Dockerfile 和 docker-compose.yml，支持一键部署。编写完整 README 文档（API 接口、配置说明、安全提示）。</p>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">15:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>左侧侧边栏 + 更新日志页面上线</h3>
+                    <p>参考 BitHot 设计，添加固定左侧侧边栏（仪表盘/更新日志），支持视图切换。</p>
+                </div>
+            </div>
+
+            <!-- 7月23日 -->
+            <div class="changelog-day">
+                <div class="changelog-day-header">
+                    <h2>2026-07-23</h2>
+                    <span class="weekday">周三</span>
+                    <span class="count-badge">2 条</span>
+                    <div class="divider"></div>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">20:00</span>
+                        <span class="tag tag-optimize">优化</span>
+                    </div>
+                    <h3>套利检测算法优化</h3>
+                    <p>净利润率计算加入双边手续费和滑点估算，按净利润率排序返回 Top N 机会。添加风险评估分级（低/中/高风险）。</p>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">16:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>配置管理系统</h3>
+                    <p>支持环境变量、YAML 配置文件和 API 动态修改三套配置方式。前端设置面板可实时调整最小利润率、下单量、扫描间隔等参数。</p>
+                </div>
+            </div>
+
+            <!-- 7月22日 -->
+            <div class="changelog-day">
+                <div class="changelog-day-header">
+                    <h2>2026-07-22</h2>
+                    <span class="weekday">周二</span>
+                    <span class="count-badge">2 条</span>
+                    <div class="divider"></div>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">21:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>WebSocket 实时推送</h3>
+                    <p>实现 WebSocket 双向通信，实时推送价格更新、套利机会、交易结果和系统状态。前端仪表盘自动刷新，无需轮询。</p>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">18:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>交易执行器</h3>
+                    <p>实现完整的交易执行流程：余额检查 → 双边下单 → 状态轮询 → 超时取消 → 利润计算。支持模拟交易和实盘交易两种模式。</p>
+                </div>
+            </div>
+
+            <!-- 7月20日 -->
+            <div class="changelog-day">
+                <div class="changelog-day-header">
+                    <h2>2026-07-20</h2>
+                    <span class="weekday">周日</span>
+                    <span class="count-badge">2 条</span>
+                    <div class="divider"></div>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">22:00</span>
+                        <span class="tag tag-optimize">优化</span>
+                    </div>
+                    <h3>异步并发扫描器</h3>
+                    <p>使用 CCXT 异步接口（async/await）并发获取所有交易所价格，12 个交易所扫描耗时从 15 秒降至 2 秒以内。</p>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">19:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>套利检测引擎</h3>
+                    <p>实现核心套利检测算法：找出最优买入（最低 ask）和卖出（最高 bid）交易所，计算价差并过滤低于阈值的低利润机会。</p>
+                </div>
+            </div>
+
+            <!-- 7月18日 -->
+            <div class="changelog-day">
+                <div class="changelog-day-header">
+                    <h2>2026-07-18</h2>
+                    <span class="weekday">周五</span>
+                    <span class="count-badge">2 条</span>
+                    <div class="divider"></div>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">20:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>多交易所接入</h3>
+                    <p>接入 12 个主流交易所：Binance、OKX、Bybit、Gate、KuCoin、Kraken、Coinbase、Bitfinex、MEXC、Huobi、Poloniex、Gemini。每个交易所支持动态启停。</p>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">16:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>FastAPI 后端搭建</h3>
+                    <p>搭建 FastAPI 主应用，包含 REST API（状态/配置/价格/机会/交易）和 WebSocket 端点。Pydantic 数据模型定义所有接口规范。</p>
+                </div>
+            </div>
+
+            <!-- 7月15日 -->
+            <div class="changelog-day">
+                <div class="changelog-day-header">
+                    <h2>2026-07-15</h2>
+                    <span class="weekday">周二</span>
+                    <span class="count-badge">2 条</span>
+                    <div class="divider"></div>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">21:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>实时监控仪表盘</h3>
+                    <p>使用原生 HTML/CSS/JS 构建监控仪表盘，包含统计卡片、价格对比表、套利机会面板、交易历史和系统设置。暗色主题适配长时间盯盘。</p>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">18:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>CCXT 价格扫描器</h3>
+                    <p>基于 CCXT 库实现多交易所价格扫描器，支持动态配置交易对列表，定时扫描并缓存最新价格。</p>
+                </div>
+            </div>
+
+            <!-- 7月13日 -->
+            <div class="changelog-day">
+                <div class="changelog-day-header">
+                    <h2>2026-07-13</h2>
+                    <span class="weekday">周日</span>
+                    <span class="count-badge">1 条</span>
+                    <div class="divider"></div>
+                </div>
+                <div class="changelog-entry">
+                    <div class="changelog-entry-header">
+                        <span class="time">20:00</span>
+                        <span class="tag tag-update">更新</span>
+                    </div>
+                    <h3>项目初始化</h3>
+                    <p>OpenAlpha 套利交易系统项目启动。技术选型：Python 3.11 + FastAPI + CCXT + asyncio 后端，原生 HTML/CSS/JS 前端，Docker 部署。</p>
+                </div>
+            </div>
+        </div>
+    </div><!-- /changelogView -->
+    </div><!-- /content-area -->
+    </div><!-- /app-wrapper -->
 
     <script>
         // ==================== 全局状态 ====================
@@ -691,6 +1125,29 @@
         let oppRefreshTimer = null;
 
         const API_BASE = window.location.origin;
+
+        // ==================== 视图切换 ====================
+        /**
+         * 切换仪表盘/更新日志视图
+         */
+        function switchView(view) {
+            var dashboard = document.getElementById('dashboardView');
+            var changelog = document.getElementById('changelogView');
+            var navDash = document.getElementById('navDashboard');
+            var navCL = document.getElementById('navChangelog');
+
+            if (view === 'changelog') {
+                dashboard.classList.add('hidden-view');
+                changelog.classList.remove('hidden-view');
+                navDash.classList.remove('active');
+                navCL.classList.add('active');
+            } else {
+                changelog.classList.add('hidden-view');
+                dashboard.classList.remove('hidden-view');
+                navCL.classList.remove('active');
+                navDash.classList.add('active');
+            }
+        }
 
         // ==================== WebSocket 连接 ====================
         /**
