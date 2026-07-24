@@ -513,6 +513,69 @@
             font-size: 13px;
         }
 
+        /* API Key 管理面板样式 */
+        .api-key-item {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 10px;
+            margin-bottom: 8px;
+            background: var(--bg-base);
+        }
+        .api-key-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .api-key-exchange-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            text-transform: capitalize;
+        }
+        .api-key-status {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .api-key-status.configured {
+            background: rgba(14, 203, 129, 0.15);
+            color: var(--color-up);
+        }
+        .api-key-status.not-configured {
+            background: rgba(246, 70, 93, 0.15);
+            color: var(--color-down);
+        }
+        .api-key-input {
+            background: var(--bg-base);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            width: 100%;
+            margin-bottom: 4px;
+        }
+        .api-key-input::placeholder { color: var(--text-disabled); }
+        .api-key-btn-row {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+        }
+        .api-key-btn {
+            flex: 1;
+            padding: 4px;
+            font-size: 11px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: var(--font-ui);
+        }
+        .api-key-btn.save { background: var(--color-up); color: #000; }
+        .api-key-btn.delete { background: var(--color-down); color: #fff; }
+        .api-key-btn.balance { background: var(--color-info); color: #fff; }
+
         /* Toggle 开关 */
         .toggle {
             position: relative;
@@ -762,6 +825,17 @@
                     <div class="toggle active" id="cfgPaperToggle" onclick="togglePaperTrade()"></div>
                 </div>
                 <button class="btn btn-primary btn-sm" style="width:100%;margin-top:8px;" onclick="saveConfig()">保存配置</button>
+            </div>
+        </div>
+
+        <!-- API Key 管理面板 -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">API Key 管理</span>
+                <span style="font-size:12px;color:var(--text-secondary);" id="apiKeySummary">0/4 已配置</span>
+            </div>
+            <div id="apiKeyList" style="padding:8px 12px;">
+                <!-- 动态生成 -->
             </div>
         </div>
 
@@ -1589,6 +1663,137 @@ async function saveConfig() {
 
 
 /* ===================================================================
+ * API Key 管理功能
+ * =================================================================== */
+
+/**
+ * 渲染 API Key 管理面板
+ * 从 /api/status 获取各交易所的 API Key 配置状态，动态生成管理 UI
+ */
+async function renderApiKeyPanel() {
+    try {
+        const resp = await fetch(API_BASE + '/api/status');
+        const status = await resp.json();
+        const keyStatus = status.api_key_status || {};
+        const exchanges = Object.keys(keyStatus);
+
+        let configuredCount = 0;
+        const html = exchanges.map(ex => {
+            const configured = keyStatus[ex];
+            if (configured) configuredCount++;
+            const statusBadge = configured
+                ? '<span class="api-key-status configured">已配置</span>'
+                : '<span class="api-key-status not-configured">未配置</span>';
+
+            return `
+                <div class="api-key-item">
+                    <div class="api-key-item-header">
+                        <span class="api-key-exchange-name">${ex}</span>
+                        ${statusBadge}
+                    </div>
+                    <input type="password" class="api-key-input" id="apiKey_${ex}" placeholder="API Key">
+                    <input type="password" class="api-key-input" id="apiSecret_${ex}" placeholder="Secret">
+                    <div class="api-key-btn-row">
+                        <button class="api-key-btn save" onclick="saveApiKey('${ex}')">保存</button>
+                        <button class="api-key-btn delete" onclick="deleteApiKey('${ex}')">删除</button>
+                        <button class="api-key-btn balance" onclick="checkBalance('${ex}')">查余额</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        document.getElementById('apiKeyList').innerHTML = html;
+        document.getElementById('apiKeySummary').textContent =
+            `${configuredCount}/${exchanges.length} 已配置`;
+    } catch (e) {
+        console.error('渲染 API Key 面板失败:', e);
+    }
+}
+
+/**
+ * 保存指定交易所的 API 密钥
+ */
+async function saveApiKey(exchange) {
+    const apiKey = document.getElementById(`apiKey_${exchange}`).value.trim();
+    const secret = document.getElementById(`apiSecret_${exchange}`).value.trim();
+
+    if (!apiKey || !secret) {
+        alert('请填写 API Key 和 Secret');
+        return;
+    }
+
+    try {
+        const resp = await fetch(API_BASE + '/api/keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ exchange, apiKey, secret }),
+        });
+        const result = await resp.json();
+        if (result.status === 'ok') {
+            alert(`${exchange} API Key 保存成功`);
+            renderApiKeyPanel();
+        } else {
+            alert('保存失败: ' + (result.error || '未知错误'));
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
+
+/**
+ * 删除指定交易所的 API 密钥
+ */
+async function deleteApiKey(exchange) {
+    if (!confirm(`确认删除 ${exchange} 的 API Key？`)) return;
+
+    try {
+        const resp = await fetch(`${API_BASE}/api/keys/${exchange}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (result.status === 'ok') {
+            alert(`${exchange} API Key 已删除`);
+            renderApiKeyPanel();
+        } else {
+            alert('删除失败: ' + (result.error || '未知错误'));
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
+
+/**
+ * 查询指定交易所的账户余额
+ */
+async function checkBalance(exchange) {
+    try {
+        const resp = await fetch(API_BASE + '/api/balances');
+        const data = await resp.json();
+        const balances = data.balances || {};
+        const exBalance = balances[exchange];
+
+        if (!exBalance) {
+            alert(`${exchange} 无余额数据`);
+            return;
+        }
+
+        if (exBalance.error) {
+            alert(`${exchange} 查询失败: ${exBalance.error}`);
+            return;
+        }
+
+        const assets = exBalance.assets || {};
+        const lines = Object.entries(assets).map(([asset, info]) =>
+            `${asset}: ${info.total} (可用 ${info.free})`
+        );
+        alert(lines.length > 0
+            ? `${exchange} 余额:\n${lines.join('\n')}`
+            : `${exchange} 余额为空`);
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
+
+
+/* ===================================================================
  * 底部日志栏切换
  * =================================================================== */
 function toggleLogs() {
@@ -1714,11 +1919,13 @@ async function init() {
     loadTradeHistory();
     fetchPrices();
     fetchOpportunities();
+    renderApiKeyPanel();
 
     // 5. 启动定时轮询（补充 WS 不推送的数据）
     timers.status = setInterval(refreshStats, 10000);      // 状态 10s
     timers.exchanges = setInterval(refreshExchanges, 5000); // 交易所状态 5s
     timers.trades = setInterval(loadTradeHistory, 60000);   // 交易历史 60s
+    timers.apiKeys = setInterval(renderApiKeyPanel, 30000); // API Key 状态 30s
 
     // 6. 心跳（防止 WS 超时断开）
     timers.heartbeat = setInterval(() => {

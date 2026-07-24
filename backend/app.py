@@ -616,6 +616,116 @@ async def get_balances() -> Dict[str, Any]:
     return {"balances": balances}
 
 
+@app.post("/api/keys")
+async def save_api_key(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    保存交易所 API 密钥到 config.yaml
+
+    接收 {exchange, apiKey, secret} 并持久化到配置文件。
+    """
+    ex_name = data.get("exchange", "").strip().lower()
+    api_key = data.get("apiKey", "").strip()
+    secret = data.get("secret", "").strip()
+
+    if not ex_name or not api_key or not secret:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "缺少必要参数: exchange, apiKey, secret"},
+        )
+
+    if ex_name not in SUPPORTED_EXCHANGES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"不支持的交易所: {ex_name}"},
+        )
+
+    try:
+        # 更新内存中的 API Key
+        config.api_keys[ex_name] = {"apiKey": api_key, "secret": secret}
+
+        # 持久化到 config.yaml
+        _save_keys_to_yaml(ex_name, {"apiKey": api_key, "secret": secret})
+
+        # 更新执行器的交易所实例配置
+        if executor and ex_name in executor._exchange_instances:
+            await executor._exchange_instances[ex_name].close()
+            del executor._exchange_instances[ex_name]
+
+        logger.info("已保存 %s 的 API 密钥", ex_name)
+        return {"status": "ok", "exchange": ex_name}
+    except Exception as e:
+        logger.error("保存 API 密钥失败: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
+
+
+@app.delete("/api/keys/{exchange}")
+async def delete_api_key(exchange: str) -> Dict[str, Any]:
+    """删除指定交易所的 API 密钥"""
+    ex_name = exchange.strip().lower()
+
+    if ex_name not in config.api_keys:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"未找到 {ex_name} 的 API 密钥"},
+        )
+
+    try:
+        # 从内存中删除
+        del config.api_keys[ex_name]
+
+        # 从 config.yaml 中删除
+        _save_keys_to_yaml(ex_name, None)
+
+        # 清除执行器中的旧实例
+        if executor and ex_name in executor._exchange_instances:
+            await executor._exchange_instances[ex_name].close()
+            del executor._exchange_instances[ex_name]
+
+        logger.info("已删除 %s 的 API 密钥", ex_name)
+        return {"status": "ok", "exchange": ex_name}
+    except Exception as e:
+        logger.error("删除 API 密钥失败: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
+
+
+def _save_keys_to_yaml(exchange: str, keys: Optional[Dict[str, str]]) -> None:
+    """
+    将 API 密钥保存到 config.yaml 文件
+
+    Args:
+        exchange: 交易所名称
+        keys: 密钥字典，None 表示删除该交易所的密钥
+    """
+    import yaml as yaml_lib
+
+    yaml_path = _config_path
+    data: Dict[str, Any] = {}
+
+    # 读取现有配置
+    if os.path.exists(yaml_path):
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml_lib.safe_load(f) or {}
+
+    # 更新 api_keys 部分
+    if "api_keys" not in data:
+        data["api_keys"] = {}
+
+    if keys is None:
+        data["api_keys"].pop(exchange, None)
+    else:
+        data["api_keys"][exchange] = keys
+
+    # 写回文件
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        yaml_lib.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+
 @app.get("/api/risk/status")
 async def get_risk_status() -> Dict[str, Any]:
     """获取风控管理器状态"""
