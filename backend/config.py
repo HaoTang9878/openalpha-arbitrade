@@ -30,17 +30,14 @@ from .models import SystemConfig
 
 logger = logging.getLogger(__name__)
 
-# 支持的交易所列表（使用 CCXT 库）
+# 支持的交易所列表（使用 CCXT 库，前期聚焦 4 个主流所）
 SUPPORTED_EXCHANGES: List[str] = [
-    "binance", "okx", "bybit", "gate", "kucoin",
-    "kraken", "coinbase", "bitfinex", "mexc", "huobi",
-    "poloniex", "gemini",
+    "binance", "okx", "bybit", "gate",
 ]
 
-# 默认监控的交易对列表
+# 默认监控的交易对列表（前期聚焦 5 个主流币）
 DEFAULT_SYMBOLS: List[str] = [
-    "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
-    "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT",
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
 ]
 
 # 默认配置参数

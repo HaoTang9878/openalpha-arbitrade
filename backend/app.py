@@ -117,6 +117,47 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# 日志广播队列（桥接同步 logging 与异步 WebSocket）
+log_queue: asyncio.Queue = asyncio.Queue()
+
+
+class WebSocketLogHandler(logging.Handler):
+    """将日志记录推入异步队列，由后台任务转发到 WebSocket 客户端"""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """将日志记录格式化后推入队列（非阻塞）"""
+        try:
+            log_queue.put_nowait({
+                "level": record.levelname,
+                "message": record.getMessage(),
+                "timestamp": int(time.time() * 1000),
+            })
+        except asyncio.QueueFull:
+            pass  # 队列满时丢弃日志，避免阻塞主线程
+
+
+# 注册日志处理器（仅转发 WARNING 及以上级别，避免噪音）
+_ws_log_handler = WebSocketLogHandler(level=logging.WARNING)
+_ws_log_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.getLogger().addHandler(_ws_log_handler)
+
+
+async def log_broadcast_loop() -> None:
+    """从日志队列取出记录并广播到所有 WebSocket 客户端"""
+    while True:
+        try:
+            log_data = await log_queue.get()
+            if ws_connections:
+                await manager.broadcast({
+                    "type": "logs",
+                    "data": log_data,
+                    "timestamp": int(time.time() * 1000),
+                })
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug("日志广播异常: %s", e)
+
 
 # ----------------------------------------------------------------------------
 # 后台任务
@@ -212,7 +253,7 @@ async def arbitrage_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理，负责初始化和清理资源"""
-    global scanner, detector, executor
+    global scanner, detector, executor, scanner_running, scanner_task
 
     logger.info("OpenAlpha 套利系统启动中...")
 
@@ -225,12 +266,26 @@ async def lifespan(app: FastAPI):
 
     logger.info("系统初始化完成，服务端口 8070")
 
+    # 启动日志广播后台任务
+    log_task = asyncio.create_task(log_broadcast_loop())
+
+    # 自动启动价格扫描，用户无需手动点击
+    scanner_running = True
+    scanner_task = asyncio.create_task(scanner_loop())
+    logger.info("价格扫描已自动启动")
+
     yield
 
     # 清理资源
-    global scanner_running, arbitrage_running
     scanner_running = False
     arbitrage_running = False
+
+    # 取消日志广播任务
+    log_task.cancel()
+    try:
+        await log_task
+    except asyncio.CancelledError:
+        pass
 
     if scanner:
         await scanner.close()

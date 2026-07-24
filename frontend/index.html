@@ -4,1664 +4,1733 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenAlpha 套利交易系统</title>
+    <!-- Chart.js 用于价差趋势图 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
-        /* ==================== 全局重置与基础样式 ==================== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        /* ===================================================================
+         * CSS 变量定义 - 币安风格深色主题
+         * =================================================================== */
+        :root {
+            --bg-base: #0B0E11;
+            --bg-panel: #161A1E;
+            --bg-card: #1E2329;
+            --bg-hover: #2B3137;
+            --border: #2A2E39;
+            --border-light: #363A45;
+
+            --text-primary: #EAECEF;
+            --text-secondary: #848E9C;
+            --text-disabled: #5E6673;
+
+            --color-up: #0ECB81;
+            --color-down: #F6465D;
+            --color-warning: #FBBF24;
+            --color-info: #2196F3;
+            --color-accent: #FCD535;
+
+            --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', 'Courier New', monospace;
+            --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+            --radius: 8px;
+            --gap: 12px;
         }
+
+        /* ===================================================================
+         * 全局重置
+         * =================================================================== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-            color: #E2E8F0;
-            min-height: 100vh;
+            font-family: var(--font-ui);
+            background: var(--bg-base);
+            color: var(--text-primary);
+            font-size: 14px;
+            overflow: hidden;
+            height: 100vh;
         }
 
-        /* ==================== 顶部导航栏 ==================== */
+        /* 等宽数字工具类 */
+        .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .text-up { color: var(--color-up); }
+        .text-down { color: var(--color-down); }
+        .text-muted { color: var(--text-secondary); }
+        .text-warning { color: var(--color-warning); }
+
+        /* ===================================================================
+         * 顶部导航栏
+         * =================================================================== */
         .navbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 16px 32px;
-            background: rgba(15, 23, 42, 0.9);
-            border-bottom: 1px solid #334155;
-            backdrop-filter: blur(10px);
+            height: 56px;
+            padding: 0 20px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
         }
-
-        .navbar-brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .navbar-brand h1 {
-            font-size: 20px;
+        .navbar-left { display: flex; align-items: center; gap: 16px; }
+        .navbar-logo {
+            font-size: 18px;
             font-weight: 700;
-            color: #32F08C;
+            color: var(--color-accent);
             letter-spacing: 0.5px;
         }
+        .navbar-title { font-size: 14px; color: var(--text-secondary); }
 
+        .navbar-center { display: flex; align-items: center; gap: 20px; }
         .status-indicator {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 13px;
-            color: #94A3B8;
         }
-
         .status-dot {
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            background: #64748B;
-            transition: background 0.3s;
+            background: var(--text-disabled);
+        }
+        .status-dot.running {
+            background: var(--color-up);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(14,203,129,0.4); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(14,203,129,0); }
         }
 
-        .status-dot.active {
-            background: #32F08C;
-            box-shadow: 0 0 8px #32F08C;
-        }
+        .navbar-right { display: flex; align-items: center; gap: 12px; }
 
-        .navbar-actions {
-            display: flex;
-            gap: 12px;
-        }
-
-        /* ==================== 按钮样式 ==================== */
-        .btn {
-            padding: 8px 20px;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
+        /* 徽章 */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 12px;
             font-weight: 600;
+        }
+        .badge-paper { background: rgba(33,150,243,0.15); color: var(--color-info); }
+        .badge-live { background: rgba(246,70,93,0.15); color: var(--color-down); }
+
+        /* 按钮 */
+        .btn {
+            padding: 6px 16px;
+            border-radius: 6px;
+            border: none;
             cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-primary {
-            background: #32F08C;
-            color: #0F172A;
-        }
-
-        .btn-primary:hover {
-            background: #28D677;
-            transform: translateY(-1px);
-        }
-
-        .btn-danger {
-            background: #EF4444;
-            color: #fff;
-        }
-
-        .btn-danger:hover {
-            background: #DC2626;
-        }
-
-        .btn-secondary {
-            background: #334155;
-            color: #E2E8F0;
-        }
-
-        .btn-secondary:hover {
-            background: #475569;
-        }
-
-        .btn-sm {
-            padding: 4px 12px;
-            font-size: 12px;
-        }
-
-        .btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        /* ==================== 统计卡片行 ==================== */
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            padding: 24px 32px;
-        }
-
-        .stat-card {
-            background: rgba(30, 41, 59, 0.6);
-            border: 1px solid #334155;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-        }
-
-        .stat-card .label {
             font-size: 13px;
-            color: #94A3B8;
-            margin-bottom: 8px;
+            font-weight: 600;
+            transition: all 0.2s;
+            font-family: var(--font-ui);
         }
+        .btn-primary { background: var(--color-up); color: #000; }
+        .btn-primary:hover { opacity: 0.85; }
+        .btn-danger { background: var(--color-down); color: #fff; }
+        .btn-danger:hover { opacity: 0.85; }
+        .btn-secondary { background: var(--bg-hover); color: var(--text-primary); border: 1px solid var(--border-light); }
+        .btn-secondary:hover { background: var(--border-light); }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
 
-        .stat-card .value {
-            font-size: 32px;
-            font-weight: 700;
-            color: #32F08C;
-        }
-
-        .stat-card .sub {
+        /* WS 连接状态 */
+        .ws-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             font-size: 12px;
-            color: #64748B;
-            margin-top: 4px;
+            color: var(--text-secondary);
         }
-
-        /* ==================== 主内容区 ==================== */
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 380px;
-            gap: 20px;
-            padding: 0 32px 24px;
+        .ws-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--color-down);
         }
+        .ws-dot.connected { background: var(--color-up); }
 
-        /* ==================== 面板通用样式 ==================== */
-        .panel {
-            background: rgba(30, 41, 59, 0.6);
-            border: 1px solid #334155;
-            border-radius: 12px;
-            margin-bottom: 20px;
+        /* ===================================================================
+         * 主布局 - 三栏
+         * =================================================================== */
+        .main-layout {
+            display: flex;
+            height: calc(100vh - 56px);
             overflow: hidden;
         }
 
+        /* 左侧栏 */
+        .sidebar-left {
+            width: 200px;
+            flex-shrink: 0;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .sidebar-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            padding-left: 4px;
+        }
+
+        /* 交易所状态项 */
+        .exchange-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 10px;
+            border-radius: var(--radius);
+            background: var(--bg-card);
+            margin-bottom: 8px;
+            border: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+        .exchange-item:hover { border-color: var(--border-light); }
+        .exchange-item-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .exchange-name { font-size: 13px; font-weight: 600; text-transform: capitalize; }
+        .exchange-latency { font-size: 11px; font-family: var(--font-mono); }
+
+        /* 中间内容区 */
+        .content-center {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: var(--gap);
+        }
+
+        /* 右侧栏 */
+        .sidebar-right {
+            width: 340px;
+            flex-shrink: 0;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: var(--gap);
+        }
+
+        /* ===================================================================
+         * KPI 卡片行
+         * =================================================================== */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: var(--gap);
+        }
+        .kpi-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+        }
+        .kpi-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .kpi-value {
+            font-size: 26px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            font-variant-numeric: tabular-nums;
+        }
+        .kpi-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+        /* ===================================================================
+         * 面板通用样式
+         * =================================================================== */
+        .panel {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
         .panel-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 16px 20px;
-            border-bottom: 1px solid #334155;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-panel);
         }
+        .panel-title { font-size: 13px; font-weight: 600; }
+        .panel-body { padding: 0; }
 
-        .panel-header h2 {
-            font-size: 16px;
-            font-weight: 600;
-            color: #E2E8F0;
-        }
-
-        .panel-body {
-            padding: 16px 20px;
-            max-height: 480px;
+        /* ===================================================================
+         * 价格对比矩阵表
+         * =================================================================== */
+        .price-table-wrapper {
+            overflow-x: auto;
+            max-height: 320px;
             overflow-y: auto;
         }
-
-        /* ==================== 价格表 ==================== */
         .price-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 13px;
         }
-
-        .price-table th {
-            text-align: left;
-            padding: 10px 8px;
-            color: #94A3B8;
-            font-weight: 600;
-            border-bottom: 1px solid #334155;
-            white-space: nowrap;
+        .price-table thead {
             position: sticky;
             top: 0;
-            background: #1E293B;
-            z-index: 1;
+            z-index: 10;
+            background: var(--bg-panel);
         }
-
-        .price-table td {
-            padding: 8px;
-            border-bottom: 1px solid #1E293B;
+        .price-table th {
+            padding: 8px 12px;
+            text-align: right;
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
             white-space: nowrap;
         }
+        .price-table th:first-child { text-align: left; position: sticky; left: 0; z-index: 11; background: var(--bg-panel); }
+        .price-table th:hover { color: var(--text-primary); }
+        .price-table td {
+            padding: 8px 12px;
+            text-align: right;
+            border-bottom: 1px solid rgba(42,46,57,0.5);
+            white-space: nowrap;
+        }
+        .price-table td:first-child {
+            text-align: left;
+            position: sticky;
+            left: 0;
+            background: var(--bg-card);
+            font-weight: 600;
+        }
+        .price-table tbody tr:hover { background: var(--bg-hover); }
 
-        .price-table tr:hover {
-            background: rgba(50, 240, 140, 0.05);
+        /* 价格单元格 */
+        .price-cell {
+            font-family: var(--font-mono);
+            font-variant-numeric: tabular-nums;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .price-bid { color: var(--color-up); }
+        .price-ask { color: var(--color-down); }
+        .price-best { font-weight: 700; }
+
+        /* 闪烁动画 */
+        .flash {
+            animation: flashAnim 0.4s ease-out;
+        }
+        @keyframes flashAnim {
+            0% { background: rgba(14,203,129,0.2); }
+            100% { background: transparent; }
         }
 
-        .price-up {
-            color: #32F08C;
-        }
-
-        .price-down {
-            color: #EF4444;
-        }
-
+        /* 价差徽章 */
         .spread-badge {
             display: inline-block;
             padding: 2px 8px;
             border-radius: 4px;
             font-size: 12px;
+            font-family: var(--font-mono);
             font-weight: 600;
         }
+        .spread-good { background: rgba(14,203,129,0.15); color: var(--color-up); }
+        .spread-low { background: rgba(132,142,156,0.15); color: var(--text-secondary); }
 
-        .spread-positive {
-            background: rgba(50, 240, 140, 0.15);
-            color: #32F08C;
+        /* ===================================================================
+         * 价差趋势图
+         * =================================================================== */
+        .chart-wrapper {
+            padding: 12px;
+            height: 220px;
+            position: relative;
         }
 
-        .spread-negative {
-            background: rgba(239, 68, 68, 0.15);
-            color: #EF4444;
+        /* ===================================================================
+         * 套利机会卡片
+         * =================================================================== */
+        .opp-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
         }
-
-        /* ==================== 套利机会卡片 ==================== */
-        .opportunity-card {
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid #334155;
-            border-radius: 10px;
-            padding: 14px;
-            margin-bottom: 12px;
+        .opp-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 12px;
+            border: 1px solid var(--border);
             transition: border-color 0.2s;
         }
-
-        .opportunity-card:hover {
-            border-color: #32F08C;
-        }
-
-        .opp-header {
+        .opp-card:hover { border-color: var(--border-light); }
+        .opp-card-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
             margin-bottom: 8px;
         }
-
-        .opp-symbol {
-            font-size: 15px;
-            font-weight: 700;
-            color: #E2E8F0;
+        .opp-symbol { font-size: 14px; font-weight: 700; }
+        .risk-light {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
         }
+        .risk-low { background: var(--color-up); }
+        .risk-medium { background: var(--color-warning); }
+        .risk-high { background: var(--color-down); }
 
         .opp-route {
-            font-size: 12px;
-            color: #94A3B8;
-            margin-bottom: 6px;
-        }
-
-        .opp-route .arrow {
-            color: #32F08C;
-            font-weight: 700;
-        }
-
-        .opp-prices {
             display: flex;
-            gap: 16px;
+            align-items: center;
+            gap: 8px;
             font-size: 12px;
             margin-bottom: 8px;
         }
+        .opp-route-arrow { color: var(--text-secondary); }
+        .opp-exchange { font-weight: 600; text-transform: capitalize; }
+        .opp-price { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
 
-        .opp-prices .buy {
-            color: #EF4444;
-        }
-
-        .opp-prices .sell {
-            color: #32F08C;
-        }
-
-        .opp-footer {
+        .opp-stats {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-        }
-
-        .opp-profit {
-            font-size: 14px;
-            font-weight: 700;
-            color: #32F08C;
-        }
-
-        .risk-badge {
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 4px;
-            text-transform: uppercase;
-        }
-
-        .risk-low {
-            background: rgba(50, 240, 140, 0.15);
-            color: #32F08C;
-        }
-
-        .risk-medium {
-            background: rgba(251, 191, 36, 0.15);
-            color: #FBBF24;
-        }
-
-        .risk-high {
-            background: rgba(239, 68, 68, 0.15);
-            color: #EF4444;
-        }
-
-        /* ==================== 交易历史 ==================== */
-        .trade-item {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 80px;
-            gap: 8px;
-            padding: 8px 0;
-            border-bottom: 1px solid #1E293B;
             font-size: 12px;
+            margin-bottom: 8px;
         }
+        .opp-stat-label { color: var(--text-secondary); }
+        .opp-stat-value { font-family: var(--font-mono); font-weight: 600; }
 
-        .trade-item:last-child {
-            border-bottom: none;
-        }
-
-        .trade-status {
-            text-align: center;
-            font-weight: 600;
-        }
-
-        .status-filled {
-            color: #32F08C;
-        }
-
-        .status-failed {
-            color: #EF4444;
-        }
-
-        .status-pending {
-            color: #FBBF24;
-        }
-
-        /* ==================== 设置面板 ==================== */
-        .settings-panel {
-            margin-bottom: 20px;
-        }
-
-        .settings-body {
-            padding: 20px;
-            display: none;
-        }
-
-        .settings-body.open {
-            display: block;
-        }
-
-        .setting-group {
-            margin-bottom: 16px;
-        }
-
-        .setting-group label {
-            display: block;
-            font-size: 13px;
-            color: #94A3B8;
-            margin-bottom: 6px;
-        }
-
-        .setting-group input[type="number"],
-        .setting-group input[type="text"] {
-            width: 100%;
-            padding: 8px 12px;
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid #334155;
-            border-radius: 6px;
-            color: #E2E8F0;
-            font-size: 14px;
-        }
-
-        .setting-group input[type="range"] {
-            width: 100%;
-        }
-
-        .setting-group .range-value {
-            font-size: 14px;
-            color: #32F08C;
-            font-weight: 600;
-        }
-
-        .checkbox-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .checkbox-item {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 12px;
-            color: #94A3B8;
-            background: rgba(15, 23, 42, 0.6);
-            padding: 4px 10px;
-            border-radius: 6px;
-            border: 1px solid #334155;
-            cursor: pointer;
-        }
-
-        .checkbox-item input {
-            margin: 0;
-        }
-
-        .checkbox-item.checked {
-            border-color: #32F08C;
-            color: #32F08C;
-        }
-
-        /* ==================== 开关样式 ==================== */
-        .toggle {
-            position: relative;
-            display: inline-block;
-            width: 44px;
-            height: 24px;
-        }
-
-        .toggle input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: #334155;
-            border-radius: 24px;
-            transition: 0.3s;
-        }
-
-        .toggle-slider:before {
-            content: "";
-            position: absolute;
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background: #E2E8F0;
-            border-radius: 50%;
-            transition: 0.3s;
-        }
-
-        .toggle input:checked + .toggle-slider {
-            background: #32F08C;
-        }
-
-        .toggle input:checked + .toggle-slider:before {
-            transform: translateX(20px);
-            background: #0F172A;
-        }
-
-        /* ==================== 空状态 ==================== */
+        /* 空状态 */
         .empty-state {
             text-align: center;
             padding: 40px 20px;
-            color: #64748B;
-            font-size: 14px;
+            color: var(--text-secondary);
+            font-size: 13px;
         }
 
-        /* ==================== 滚动条样式 ==================== */
-        ::-webkit-scrollbar {
-            width: 6px;
+        /* ===================================================================
+         * 交易历史
+         * =================================================================== */
+        .trade-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            padding: 12px;
         }
-
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #334155;
-            border-radius: 3px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #475569;
-        }
-
-        /* ==================== 响应式 ==================== */
-        @media (max-width: 1024px) {
-            .main-content {
-                grid-template-columns: 1fr;
-            }
-
-            .stats-row {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (max-width: 600px) {
-            .stats-row {
-                grid-template-columns: 1fr;
-            }
-
-            .navbar {
-                padding: 12px 16px;
-            }
-
-            .main-content {
-                padding: 0 16px 16px;
-            }
-
-            .app-wrapper {
-                flex-direction: column;
-            }
-
-            .sidebar {
-                width: 100%;
-                height: auto;
-                position: relative;
-                border-right: none;
-                border-bottom: 1px solid #334155;
-                flex-direction: row;
-                overflow-x: auto;
-            }
-        }
-
-        /* ==================== 侧边栏 ==================== */
-        .app-wrapper {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        .sidebar {
-            width: 220px;
-            min-width: 220px;
-            background: rgba(15, 23, 42, 0.95);
-            border-right: 1px solid #334155;
-            display: flex;
-            flex-direction: column;
-            position: sticky;
-            top: 0;
-            height: 100vh;
-        }
-
-        .sidebar-brand {
-            padding: 20px 16px;
-            border-bottom: 1px solid #334155;
-        }
-
-        .sidebar-brand h2 {
-            font-size: 16px;
-            font-weight: 700;
-            color: #32F08C;
-        }
-
-        .sidebar-brand p {
-            font-size: 11px;
-            color: #64748B;
-            margin-top: 4px;
-        }
-
-        .sidebar-nav {
-            flex: 1;
-            padding: 12px 8px;
-            overflow-y: auto;
-        }
-
-        .sidebar-nav a {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 12px;
-            border-radius: 8px;
-            font-size: 14px;
-            color: #94A3B8;
-            cursor: pointer;
-            transition: all 0.15s;
-            margin-bottom: 2px;
-        }
-
-        .sidebar-nav a:hover {
-            background: rgba(51, 65, 85, 0.5);
-            color: #E2E8F0;
-        }
-
-        .sidebar-nav a.active {
-            background: rgba(50, 240, 140, 0.1);
-            color: #32F08C;
-            border-left: 2px solid #32F08C;
-        }
-
-        .sidebar-nav .nav-icon {
-            font-size: 16px;
-            width: 20px;
+        .trade-stat-card {
             text-align: center;
+            padding: 8px;
+            background: var(--bg-panel);
+            border-radius: 6px;
         }
-
-        .sidebar-footer {
-            padding: 12px 16px;
-            border-top: 1px solid #334155;
-            font-size: 11px;
-            color: #475569;
-        }
-
-        .content-area {
-            flex: 1;
-            min-width: 0;
-        }
-
-        /* ==================== 更新日志页面 ==================== */
-        .changelog-view {
-            max-width: 760px;
-            margin: 0 auto;
-            padding: 32px;
-        }
-
-        .changelog-view h1 {
-            font-size: 26px;
-            font-weight: 700;
-            color: #E2E8F0;
-            margin-bottom: 6px;
-        }
-
-        .changelog-view .subtitle {
-            font-size: 14px;
-            color: #64748B;
-            margin-bottom: 32px;
-        }
-
-        .changelog-day {
-            margin-bottom: 32px;
-        }
-
-        .changelog-day-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-
-        .changelog-day-header h2 {
+        .trade-stat-value {
             font-size: 18px;
             font-weight: 700;
-            color: #E2E8F0;
+            font-family: var(--font-mono);
         }
+        .trade-stat-label { font-size: 11px; color: var(--text-secondary); }
 
-        .changelog-day-header .weekday {
-            font-size: 13px;
-            color: #64748B;
+        .trade-table-wrapper {
+            max-height: 240px;
+            overflow-y: auto;
         }
+        .trade-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .trade-table thead {
+            position: sticky;
+            top: 0;
+            background: var(--bg-panel);
+            z-index: 5;
+        }
+        .trade-table th {
+            padding: 6px 8px;
+            text-align: right;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+        }
+        .trade-table th:first-child { text-align: left; }
+        .trade-table td {
+            padding: 6px 8px;
+            text-align: right;
+            border-bottom: 1px solid rgba(42,46,57,0.3);
+            font-family: var(--font-mono);
+            font-variant-numeric: tabular-nums;
+        }
+        .trade-table td:first-child { text-align: left; font-family: var(--font-ui); }
+        .trade-table tbody tr:hover { background: var(--bg-hover); }
 
-        .changelog-day-header .count-badge {
+        .status-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
             font-size: 11px;
-            color: #94A3B8;
-            background: rgba(51, 65, 85, 0.6);
-            padding: 2px 8px;
-            border-radius: 999px;
+            font-weight: 600;
         }
+        .status-filled { background: rgba(14,203,129,0.15); color: var(--color-up); }
+        .status-failed { background: rgba(246,70,93,0.15); color: var(--color-down); }
+        .status-pending { background: rgba(251,191,36,0.15); color: var(--color-warning); }
 
-        .changelog-day-header .divider {
-            flex: 1;
-            height: 1px;
-            background: #334155;
-        }
-
-        .changelog-entry {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid #334155;
-            border-radius: 10px;
-            padding: 16px;
-            margin-bottom: 12px;
-        }
-
-        .changelog-entry-header {
+        /* ===================================================================
+         * 配置面板
+         * =================================================================== */
+        .config-panel { display: none; }
+        .config-panel.open { display: block; }
+        .config-body { padding: 14px; }
+        .config-row {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 8px;
+            justify-content: space-between;
+            margin-bottom: 12px;
         }
-
-        .changelog-entry .time {
-            font-family: monospace;
-            font-size: 13px;
-            color: #64748B;
-        }
-
-        .changelog-entry .tag {
-            font-size: 11px;
-            font-weight: 600;
-            padding: 2px 8px;
+        .config-label { font-size: 13px; color: var(--text-secondary); }
+        .config-input {
+            background: var(--bg-base);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 4px 8px;
             border-radius: 4px;
-            border: 1px solid;
-        }
-
-        .tag-update {
-            background: rgba(59, 130, 246, 0.15);
-            color: #93C5FD;
-            border-color: rgba(59, 130, 246, 0.4);
-        }
-
-        .tag-optimize {
-            background: rgba(50, 240, 140, 0.15);
-            color: #6EE7B7;
-            border-color: rgba(50, 240, 140, 0.4);
-        }
-
-        .tag-fix {
-            background: rgba(251, 146, 60, 0.15);
-            color: #FDBA74;
-            border-color: rgba(251, 146, 60, 0.4);
-        }
-
-        .changelog-entry h3 {
-            font-size: 15px;
-            font-weight: 600;
-            color: #E2E8F0;
-            margin-bottom: 4px;
-        }
-
-        .changelog-entry p {
             font-size: 13px;
-            color: #94A3B8;
+            font-family: var(--font-mono);
+            width: 120px;
+        }
+        .config-select {
+            background: var(--bg-base);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        /* Toggle 开关 */
+        .toggle {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            background: var(--bg-hover);
+            border-radius: 11px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .toggle.active { background: var(--color-up); }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s;
+        }
+        .toggle.active::after { transform: translateX(18px); }
+
+        /* ===================================================================
+         * 底部日志流
+         * =================================================================== */
+        .log-bar {
+            height: 36px;
+            flex-shrink: 0;
+            background: var(--bg-panel);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            cursor: pointer;
+        }
+        .log-bar-left { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+        .log-container {
+            display: none;
+            height: 160px;
+            background: var(--bg-base);
+            border-top: 1px solid var(--border);
+            flex-direction: column;
+        }
+        .log-container.open { display: flex; }
+        .log-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .log-search {
+            background: var(--bg-card);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            flex: 1;
+        }
+        .log-stream {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 12px;
+            font-family: var(--font-mono);
+            font-size: 12px;
             line-height: 1.6;
         }
+        .log-line { display: flex; gap: 8px; }
+        .log-time { color: var(--text-disabled); flex-shrink: 0; }
+        .log-level { font-weight: 600; flex-shrink: 0; width: 60px; }
+        .log-level-WARNING { color: var(--color-warning); }
+        .log-level-ERROR { color: var(--color-down); }
+        .log-level-INFO { color: var(--color-info); }
+        .log-msg { color: var(--text-primary); }
 
-        .hidden-view {
-            display: none;
+        /* ===================================================================
+         * 滚动条
+         * =================================================================== */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-disabled); }
+
+        /* ===================================================================
+         * 响应式
+         * =================================================================== */
+        @media (max-width: 1280px) {
+            .sidebar-left { width: 160px; }
+            .sidebar-right { width: 300px; }
+        }
+        @media (max-width: 1024px) {
+            .sidebar-left { display: none; }
+            .sidebar-right { width: 280px; }
+            .kpi-row { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
 <body>
-    <div class="app-wrapper">
-    <!-- ==================== 左侧侧边栏 ==================== -->
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <h2>OpenAlpha</h2>
-            <p>套利交易系统</p>
-        </div>
-        <nav class="sidebar-nav">
-            <a onclick="switchView('dashboard')" id="navDashboard" class="active">
-                <span class="nav-icon">&#128202;</span> 仪表盘
-            </a>
-            <a onclick="switchView('changelog')" id="navChangelog">
-                <span class="nav-icon">&#128197;</span> 更新日志
-            </a>
-        </nav>
-        <div class="sidebar-footer">
-            v1.0.0 &middot; 2026-07
-        </div>
-    </aside>
 
-    <!-- ==================== 内容区域 ==================== -->
-    <div class="content-area">
-    <!-- ==================== 仪表盘视图 ==================== -->
-    <div id="dashboardView">
-    <!-- ==================== 顶部导航栏 ==================== -->
-    <nav class="navbar">
-        <div class="navbar-brand">
-            <h1>OpenAlpha 套利交易系统</h1>
-            <div class="status-indicator">
-                <span class="status-dot" id="systemStatusDot"></span>
-                <span id="systemStatusText">未运行</span>
-            </div>
+<!-- ===================================================================
+     顶部导航栏
+     =================================================================== -->
+<nav class="navbar">
+    <div class="navbar-left">
+        <span class="navbar-logo">OpenAlpha</span>
+        <span class="navbar-title">套利交易系统</span>
+    </div>
+    <div class="navbar-center">
+        <div class="status-indicator">
+            <div class="status-dot" id="scanStatusDot"></div>
+            <span id="scanStatusText">未运行</span>
         </div>
-        <div class="navbar-actions">
-            <button class="btn btn-primary" id="startMonitorBtn" onclick="toggleMonitor()">
-                开始监控
-            </button>
-            <button class="btn btn-danger" id="stopMonitorBtn" onclick="toggleMonitor()" style="display:none;">
-                停止监控
-            </button>
-        </div>
-    </nav>
-
-    <!-- ==================== 统计卡片行 ==================== -->
-    <div class="stats-row">
-        <div class="stat-card">
-            <div class="label">监控交易所</div>
-            <div class="value" id="statExchanges">0</div>
-            <div class="sub">个交易所</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">监控交易对</div>
-            <div class="value" id="statSymbols">0</div>
-            <div class="sub">个交易对</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">套利机会</div>
-            <div class="value" id="statOpportunities">0</div>
-            <div class="sub">个机会</div>
-        </div>
-        <div class="stat-card">
-            <div class="label">今日交易</div>
-            <div class="value" id="statTrades">0</div>
-            <div class="sub">笔交易</div>
+        <div class="status-indicator">
+            <span class="text-muted">运行时长</span>
+            <span class="mono" id="uptimeText">00:00:00</span>
         </div>
     </div>
+    <div class="navbar-right">
+        <div class="ws-status">
+            <div class="ws-dot" id="wsDot"></div>
+            <span id="wsStatusText">断开</span>
+        </div>
+        <span class="badge badge-paper" id="modeBadge">模拟交易</span>
+        <button class="btn btn-primary btn-sm" id="monitorBtn" onclick="toggleMonitor()">开始监控</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;color:var(--text-secondary);">自动套利</span>
+            <div class="toggle" id="autoExecToggle" onclick="toggleAutoExecute()"></div>
+        </div>
+    </div>
+</nav>
 
-    <!-- ==================== 主内容区 ==================== -->
-    <div class="main-content">
-        <!-- 左侧：价格表 + 交易历史 -->
-        <div>
-            <!-- 价格对比表 -->
-            <div class="panel">
-                <div class="panel-header">
-                    <h2>价格对比</h2>
-                    <span style="font-size:12px;color:#64748B;" id="priceUpdateTime">--</span>
-                </div>
-                <div class="panel-body">
+<!-- ===================================================================
+     主布局：三栏
+     =================================================================== -->
+<div class="main-layout">
+
+    <!-- 左侧栏：交易所状态 -->
+    <aside class="sidebar-left">
+        <div class="sidebar-title">交易所状态</div>
+        <div id="exchangeList">
+            <div class="empty-state">加载中...</div>
+        </div>
+
+        <!-- 配置面板入口 -->
+        <div class="sidebar-title" style="margin-top:16px;">系统设置</div>
+        <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="toggleSettings()">展开配置</button>
+    </aside>
+
+    <!-- 中间内容区 -->
+    <main class="content-center">
+
+        <!-- KPI 卡片行 -->
+        <div class="kpi-row">
+            <div class="kpi-card">
+                <div class="kpi-label">套利机会</div>
+                <div class="kpi-value text-up" id="kpiOpps">0</div>
+                <div class="kpi-sub" id="kpiOppsSub">个实时机会</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">今日交易</div>
+                <div class="kpi-value" style="color:var(--color-info);" id="kpiTrades">0</div>
+                <div class="kpi-sub">笔成交</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">平均价差</div>
+                <div class="kpi-value mono" id="kpiAvgSpread">0.00%</div>
+                <div class="kpi-sub" id="kpiAvgSpreadSub">5 个币种均值</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">累计收益</div>
+                <div class="kpi-value mono" id="kpiProfit">$0.00</div>
+                <div class="kpi-sub" id="kpiProfitSub">含模拟交易</div>
+            </div>
+        </div>
+
+        <!-- 价格对比矩阵表 -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">价格对比矩阵</span>
+                <span style="font-size:12px;color:var(--text-secondary);" id="priceUpdateTime">--</span>
+            </div>
+            <div class="panel-body">
+                <div class="price-table-wrapper">
                     <table class="price-table" id="priceTable">
                         <thead>
-                            <tr id="priceTableHeader"></tr>
+                            <tr id="priceTableHead"></tr>
                         </thead>
                         <tbody id="priceTableBody">
-                            <tr><td colspan="99" class="empty-state">等待数据加载...</td></tr>
+                            <tr><td colspan="6" class="empty-state">等待数据...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
+        </div>
 
-            <!-- 交易历史 -->
-            <div class="panel">
-                <div class="panel-header">
-                    <h2>交易历史</h2>
-                    <span style="font-size:12px;color:#64748B;">最近 50 笔</span>
-                </div>
-                <div class="panel-body">
-                    <div id="tradeHistory">
-                        <div class="empty-state">暂无交易记录</div>
-                    </div>
-                </div>
+        <!-- 价差趋势图 -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">价差趋势（最近 5 分钟）</span>
             </div>
-
-            <!-- 设置面板 -->
-            <div class="panel settings-panel">
-                <div class="panel-header">
-                    <h2>系统设置</h2>
-                    <button class="btn btn-secondary btn-sm" onclick="toggleSettings()">
-                        展开/收起
-                    </button>
-                </div>
-                <div class="settings-body" id="settingsBody">
-                    <div class="setting-group">
-                        <label>最小利润率: <span class="range-value" id="minProfitValue">0.30%</span></label>
-                        <input type="range" min="0.1" max="2" step="0.1" value="0.3"
-                               id="minProfitSlider" oninput="onMinProfitChange()">
-                    </div>
-                    <div class="setting-group">
-                        <label>下单量（基础货币）</label>
-                        <input type="number" step="0.001" min="0.001" value="0.01"
-                               id="orderAmountInput" onchange="saveConfig()">
-                    </div>
-                    <div class="setting-group">
-                        <label>扫描间隔（秒）</label>
-                        <input type="number" step="1" min="1" max="300" value="10"
-                               id="scanIntervalInput" onchange="saveConfig()">
-                    </div>
-                    <div class="setting-group">
-                        <label>模拟交易模式</label>
-                        <label class="toggle">
-                            <input type="checkbox" id="paperTradeToggle" checked onchange="saveConfig()">
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                    <div class="setting-group">
-                        <label>交易所选择</label>
-                        <div class="checkbox-group" id="exchangeCheckboxes"></div>
-                    </div>
-                    <div class="setting-group">
-                        <label>交易对选择</label>
-                        <div class="checkbox-group" id="symbolCheckboxes"></div>
-                    </div>
-                    <button class="btn btn-primary" onclick="saveConfig()">保存设置</button>
-                </div>
+            <div class="chart-wrapper">
+                <canvas id="spreadChart"></canvas>
             </div>
         </div>
 
-        <!-- 右侧：套利机会面板 -->
-        <div>
-            <div class="panel">
-                <div class="panel-header">
-                    <h2>套利机会</h2>
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span style="font-size:12px;color:#94A3B8;">自动执行</span>
-                        <label class="toggle">
-                            <input type="checkbox" id="autoExecuteToggle" onchange="toggleAutoExecute()">
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
+        <!-- 配置面板（可折叠） -->
+        <div class="panel config-panel" id="configPanel">
+            <div class="panel-header">
+                <span class="panel-title">策略配置</span>
+            </div>
+            <div class="config-body">
+                <div class="config-row">
+                    <span class="config-label">最小净利润率</span>
+                    <input type="number" class="config-input" id="cfgMinProfit" step="0.001" min="0.001" max="0.1">
                 </div>
-                <div class="panel-body" id="opportunitiesPanel">
-                    <div class="empty-state">等待检测套利机会...</div>
+                <div class="config-row">
+                    <span class="config-label">单笔下单量</span>
+                    <input type="number" class="config-input" id="cfgOrderAmount" step="0.01" min="0.001">
+                </div>
+                <div class="config-row">
+                    <span class="config-label">扫描间隔（秒）</span>
+                    <select class="config-select" id="cfgScanInterval">
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="30">30</option>
+                    </select>
+                </div>
+                <div class="config-row">
+                    <span class="config-label">最大机会数</span>
+                    <select class="config-select" id="cfgTopN">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+                <div class="config-row">
+                    <span class="config-label">手续费率</span>
+                    <input type="number" class="config-input" id="cfgFeeRate" step="0.0001" min="0" max="0.01">
+                </div>
+                <div class="config-row">
+                    <span class="config-label">模拟交易</span>
+                    <div class="toggle active" id="cfgPaperToggle" onclick="togglePaperTrade()"></div>
+                </div>
+                <button class="btn btn-primary btn-sm" style="width:100%;margin-top:8px;" onclick="saveConfig()">保存配置</button>
+            </div>
+        </div>
+
+        <!-- 交易历史 -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">交易历史</span>
+                <span style="font-size:12px;color:var(--text-secondary);" id="tradeCountText">0 笔</span>
+            </div>
+            <div class="trade-stats">
+                <div class="trade-stat-card">
+                    <div class="trade-stat-value" id="statTotalTrades">0</div>
+                    <div class="trade-stat-label">总交易</div>
+                </div>
+                <div class="trade-stat-card">
+                    <div class="trade-stat-value text-up" id="statWinRate">0%</div>
+                    <div class="trade-stat-label">胜率</div>
+                </div>
+                <div class="trade-stat-card">
+                    <div class="trade-stat-value mono" id="statTotalProfit">$0.00</div>
+                    <div class="trade-stat-label">累计收益</div>
+                </div>
+            </div>
+            <div class="trade-table-wrapper">
+                <table class="trade-table">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>交易对</th>
+                            <th>路由</th>
+                            <th>买价</th>
+                            <th>卖价</th>
+                            <th>数量</th>
+                            <th>净利润</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradeTableBody">
+                        <tr><td colspan="8" class="empty-state">暂无交易记录</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 右侧栏：套利机会 -->
+    <aside class="sidebar-right">
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">套利机会</span>
+                <span style="font-size:12px;color:var(--text-secondary);" id="oppCountText">0 个</span>
+            </div>
+            <div class="panel-body" style="padding:10px;">
+                <div class="opp-list" id="oppList">
+                    <div class="empty-state">等待扫描...</div>
                 </div>
             </div>
         </div>
+    </aside>
+
+</div>
+
+<!-- ===================================================================
+     底部日志流
+     =================================================================== -->
+<div class="log-bar" onclick="toggleLogs()">
+    <div class="log-bar-left">
+        <span style="color:var(--text-secondary);">实时日志</span>
+        <span class="mono" id="latestLogLine" style="color:var(--text-disabled);">--</span>
     </div>
-    </div><!-- /dashboardView -->
+    <span style="font-size:12px;color:var(--text-secondary);" id="logToggleText">展开</span>
+</div>
+<div class="log-container" id="logContainer">
+    <div class="log-toolbar">
+        <input type="text" class="log-search" placeholder="搜索日志..." id="logSearch" oninput="renderLogs()">
+        <button class="btn btn-secondary btn-sm" id="logPauseBtn" onclick="toggleLogPause(event)">暂停</button>
+    </div>
+    <div class="log-stream" id="logStream"></div>
+</div>
 
-    <!-- ==================== 更新日志视图 ==================== -->
-    <div id="changelogView" class="hidden-view">
-        <div class="changelog-view">
-            <h1>更新日志</h1>
-            <p class="subtitle">最近发生了什么 — 新功能、优化和修复，都写在这里。</p>
 
-            <!-- 7月24日 -->
-            <div class="changelog-day">
-                <div class="changelog-day-header">
-                    <h2>2026-07-24</h2>
-                    <span class="weekday">周四</span>
-                    <span class="count-badge">3 条</span>
-                    <div class="divider"></div>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">22:00</span>
-                        <span class="tag tag-fix">修复</span>
-                    </div>
-                    <h3>限制 CCXT 仅加载现货市场</h3>
-                    <p>修复误加载合约/期权市场导致价格数据异常的问题，scanner 现在只获取 spot 类型的交易对。</p>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">18:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>Docker 部署 + 文档完善</h3>
-                    <p>添加 Dockerfile 和 docker-compose.yml，支持一键部署。编写完整 README 文档（API 接口、配置说明、安全提示）。</p>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">15:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>左侧侧边栏 + 更新日志页面上线</h3>
-                    <p>参考 BitHot 设计，添加固定左侧侧边栏（仪表盘/更新日志），支持视图切换。</p>
-                </div>
-            </div>
+<script>
+/* ===================================================================
+ * 全局状态
+ * =================================================================== */
+const API_BASE = window.location.origin;
+let ws = null;
+let wsConnected = false;
+let wsReconnectDelay = 1000;
+let isMonitorRunning = false;
+let isAutoExecute = false;
+let restFallbackActive = false;
 
-            <!-- 7月23日 -->
-            <div class="changelog-day">
-                <div class="changelog-day-header">
-                    <h2>2026-07-23</h2>
-                    <span class="weekday">周三</span>
-                    <span class="count-badge">2 条</span>
-                    <div class="divider"></div>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">20:00</span>
-                        <span class="tag tag-optimize">优化</span>
-                    </div>
-                    <h3>套利检测算法优化</h3>
-                    <p>净利润率计算加入双边手续费和滑点估算，按净利润率排序返回 Top N 机会。添加风险评估分级（低/中/高风险）。</p>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">16:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>配置管理系统</h3>
-                    <p>支持环境变量、YAML 配置文件和 API 动态修改三套配置方式。前端设置面板可实时调整最小利润率、下单量、扫描间隔等参数。</p>
-                </div>
-            </div>
+// 数据缓存
+let currentExchanges = [];
+let currentSymbols = [];
+let currentConfig = {};
+let latestPriceData = {};
+let latestOpportunities = [];
+let tradeHistory = [];
+let logBuffer = [];
+let logPaused = false;
+let logFilter = '';
+const MAX_LOGS = 200;
 
-            <!-- 7月22日 -->
-            <div class="changelog-day">
-                <div class="changelog-day-header">
-                    <h2>2026-07-22</h2>
-                    <span class="weekday">周二</span>
-                    <span class="count-badge">2 条</span>
-                    <div class="divider"></div>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">21:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>WebSocket 实时推送</h3>
-                    <p>实现 WebSocket 双向通信，实时推送价格更新、套利机会、交易结果和系统状态。前端仪表盘自动刷新，无需轮询。</p>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">18:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>交易执行器</h3>
-                    <p>实现完整的交易执行流程：余额检查 → 双边下单 → 状态轮询 → 超时取消 → 利润计算。支持模拟交易和实盘交易两种模式。</p>
-                </div>
-            </div>
+// 价差趋势图数据（每个币种维护 20 个点的环形缓冲区）
+let spreadChart = null;
+let spreadHistory = {};
+let spreadLabels = [];
 
-            <!-- 7月20日 -->
-            <div class="changelog-day">
-                <div class="changelog-day-header">
-                    <h2>2026-07-20</h2>
-                    <span class="weekday">周日</span>
-                    <span class="count-badge">2 条</span>
-                    <div class="divider"></div>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">22:00</span>
-                        <span class="tag tag-optimize">优化</span>
-                    </div>
-                    <h3>异步并发扫描器</h3>
-                    <p>使用 CCXT 异步接口（async/await）并发获取所有交易所价格，12 个交易所扫描耗时从 15 秒降至 2 秒以内。</p>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">19:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>套利检测引擎</h3>
-                    <p>实现核心套利检测算法：找出最优买入（最低 ask）和卖出（最高 bid）交易所，计算价差并过滤低于阈值的低利润机会。</p>
-                </div>
-            </div>
+// 定时器引用
+let timers = {};
 
-            <!-- 7月18日 -->
-            <div class="changelog-day">
-                <div class="changelog-day-header">
-                    <h2>2026-07-18</h2>
-                    <span class="weekday">周五</span>
-                    <span class="count-badge">2 条</span>
-                    <div class="divider"></div>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">20:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>多交易所接入</h3>
-                    <p>接入 12 个主流交易所：Binance、OKX、Bybit、Gate、KuCoin、Kraken、Coinbase、Bitfinex、MEXC、Huobi、Poloniex、Gemini。每个交易所支持动态启停。</p>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">16:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>FastAPI 后端搭建</h3>
-                    <p>搭建 FastAPI 主应用，包含 REST API（状态/配置/价格/机会/交易）和 WebSocket 端点。Pydantic 数据模型定义所有接口规范。</p>
-                </div>
-            </div>
 
-            <!-- 7月15日 -->
-            <div class="changelog-day">
-                <div class="changelog-day-header">
-                    <h2>2026-07-15</h2>
-                    <span class="weekday">周二</span>
-                    <span class="count-badge">2 条</span>
-                    <div class="divider"></div>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">21:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>实时监控仪表盘</h3>
-                    <p>使用原生 HTML/CSS/JS 构建监控仪表盘，包含统计卡片、价格对比表、套利机会面板、交易历史和系统设置。暗色主题适配长时间盯盘。</p>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">18:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>CCXT 价格扫描器</h3>
-                    <p>基于 CCXT 库实现多交易所价格扫描器，支持动态配置交易对列表，定时扫描并缓存最新价格。</p>
-                </div>
-            </div>
+/* ===================================================================
+ * 工具函数
+ * =================================================================== */
 
-            <!-- 7月13日 -->
-            <div class="changelog-day">
-                <div class="changelog-day-header">
-                    <h2>2026-07-13</h2>
-                    <span class="weekday">周日</span>
-                    <span class="count-badge">1 条</span>
-                    <div class="divider"></div>
-                </div>
-                <div class="changelog-entry">
-                    <div class="changelog-entry-header">
-                        <span class="time">20:00</span>
-                        <span class="tag tag-update">更新</span>
-                    </div>
-                    <h3>项目初始化</h3>
-                    <p>OpenAlpha 套利交易系统项目启动。技术选型：Python 3.11 + FastAPI + CCXT + asyncio 后端，原生 HTML/CSS/JS 前端，Docker 部署。</p>
-                </div>
-            </div>
-        </div>
-    </div><!-- /changelogView -->
-    </div><!-- /content-area -->
-    </div><!-- /app-wrapper -->
+/** 格式化价格（按数量级自适应小数位） */
+function formatPrice(price) {
+    if (!price || price <= 0) return '--';
+    if (price >= 1000) return price.toFixed(2);
+    if (price >= 1) return price.toFixed(4);
+    return price.toFixed(6);
+}
 
-    <script>
-        // ==================== 全局状态 ====================
-        let ws = null;
-        let isMonitorRunning = false;
-        let isAutoExecute = false;
-        let currentExchanges = [];
-        let currentSymbols = [];
-        let latestPriceData = {};
-        let priceRefreshTimer = null;
-        let oppRefreshTimer = null;
+/** 格式化百分比 */
+function formatPct(val) {
+    if (val === null || val === undefined) return '--';
+    return (val * 100).toFixed(3) + '%';
+}
 
-        const API_BASE = window.location.origin;
+/** 格式化 USDT 金额 */
+function formatUsdt(val) {
+    if (!val) return '$0.00';
+    const sign = val >= 0 ? '' : '-';
+    return sign + '$' + Math.abs(val).toFixed(2);
+}
 
-        // ==================== 视图切换 ====================
-        /**
-         * 切换仪表盘/更新日志视图
-         */
-        function switchView(view) {
-            var dashboard = document.getElementById('dashboardView');
-            var changelog = document.getElementById('changelogView');
-            var navDash = document.getElementById('navDashboard');
-            var navCL = document.getElementById('navChangelog');
+/** 格式化运行时长 */
+function formatUptime(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+}
 
-            if (view === 'changelog') {
-                dashboard.classList.add('hidden-view');
-                changelog.classList.remove('hidden-view');
-                navDash.classList.remove('active');
-                navCL.classList.add('active');
+/** 格式化时间戳 */
+function formatTime(ts) {
+    if (!ts) return '--';
+    const d = new Date(typeof ts === 'number' ? ts : Date.parse(ts));
+    return d.toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+
+/* ===================================================================
+ * WebSocket 连接管理
+ * =================================================================== */
+
+/** 建立 WebSocket 连接（带自动重连） */
+function connectWebSocket() {
+    const wsUrl = API_BASE.replace('http', 'ws') + '/ws';
+    try {
+        ws = new WebSocket(wsUrl);
+    } catch (e) {
+        console.error('WebSocket 创建失败:', e);
+        scheduleReconnect();
+        return;
+    }
+
+    ws.onopen = () => {
+        wsConnected = true;
+        wsReconnectDelay = 1000;
+        updateWsStatus(true);
+        // 重连后停止 REST 兜底
+        if (restFallbackActive) {
+            stopRestFallback();
+        }
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            handleMessage(msg);
+        } catch (e) {
+            console.error('消息解析失败:', e);
+        }
+    };
+
+    ws.onclose = () => {
+        wsConnected = false;
+        updateWsStatus(false);
+        scheduleReconnect();
+    };
+
+    ws.onerror = (e) => {
+        console.error('WebSocket 错误:', e);
+    };
+}
+
+/** 安排重连（指数退避，最大 30s） */
+function scheduleReconnect() {
+    // 断线时启动 REST 兜底
+    if (!restFallbackActive) {
+        startRestFallback();
+    }
+    setTimeout(() => {
+        connectWebSocket();
+    }, wsReconnectDelay);
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+}
+
+/** 更新 WS 连接状态指示器 */
+function updateWsStatus(connected) {
+    document.getElementById('wsDot').className = 'ws-dot' + (connected ? ' connected' : '');
+    document.getElementById('wsStatusText').textContent = connected ? '已连接' : '重连中';
+}
+
+
+/* ===================================================================
+ * 消息处理
+ * =================================================================== */
+
+/** 分发 WebSocket 消息 */
+function handleMessage(msg) {
+    if (msg.type === 'ping') return;
+    switch (msg.type) {
+        case 'status':
+            updateSystemStatus(msg.data);
+            break;
+        case 'prices':
+            renderPriceTable(msg.data);
+            updateSpreadChart(msg.data);
+            updateKpiFromPrices(msg.data);
+            break;
+        case 'opportunities':
+            renderOpportunities(msg.data);
+            break;
+        case 'trade':
+            addTradeToHistory(msg.data);
+            break;
+        case 'logs':
+            addLog(msg.data);
+            break;
+    }
+}
+
+
+/* ===================================================================
+ * 系统状态更新
+ * =================================================================== */
+
+/** 更新系统状态（导航栏 + KPI） */
+function updateSystemStatus(status) {
+    isMonitorRunning = status.scanner_running;
+    const dot = document.getElementById('scanStatusDot');
+    const text = document.getElementById('scanStatusText');
+    const btn = document.getElementById('monitorBtn');
+
+    if (status.scanner_running) {
+        dot.className = 'status-dot running';
+        text.textContent = '扫描中';
+        btn.textContent = '停止监控';
+        btn.className = 'btn btn-danger btn-sm';
+    } else {
+        dot.className = 'status-dot';
+        text.textContent = '已停止';
+        btn.textContent = '开始监控';
+        btn.className = 'btn btn-primary btn-sm';
+    }
+
+    document.getElementById('uptimeText').textContent = formatUptime(status.uptime_seconds || 0);
+
+    // 模拟/实盘徽章
+    const badge = document.getElementById('modeBadge');
+    if (status.paper_trade) {
+        badge.className = 'badge badge-paper';
+        badge.textContent = '模拟交易';
+    } else {
+        badge.className = 'badge badge-live';
+        badge.textContent = '实盘交易';
+    }
+
+    // KPI 更新
+    document.getElementById('kpiOpps').textContent = status.opportunities_count || 0;
+    document.getElementById('kpiTrades').textContent = status.trades_count || 0;
+    document.getElementById('kpiOppsSub').textContent =
+        (status.exchanges_count || 0) + ' 所 · ' + (status.symbols_count || 0) + ' 币';
+}
+
+
+/* ===================================================================
+ * 价格对比矩阵表
+ * =================================================================== */
+
+/** 渲染价格表（增量更新 + 闪烁动画） */
+function renderPriceTable(prices) {
+    if (!prices || Object.keys(prices).length === 0) return;
+
+    latestPriceData = prices;
+    const exchanges = Object.keys(prices).sort();
+
+    // 首次渲染时构建表头
+    const headRow = document.getElementById('priceTableHead');
+    if (headRow.children.length === 0 || headRow.dataset.exchanges !== exchanges.join(',')) {
+        let headHtml = '<th>交易对</th>';
+        exchanges.forEach(ex => {
+            headHtml += '<th>' + ex.charAt(0).toUpperCase() + ex.slice(1) + '</th>';
+        });
+        headHtml += '<th>最大价差</th>';
+        headRow.innerHTML = headHtml;
+        headRow.dataset.exchanges = exchanges.join(',');
+    }
+
+    // 收集所有交易对
+    const allSymbols = new Set();
+    exchanges.forEach(ex => {
+        Object.keys(prices[ex]).forEach(sym => allSymbols.add(sym));
+    });
+    const symbols = Array.from(allSymbols).sort();
+
+    const tbody = document.getElementById('priceTableBody');
+    let html = '';
+
+    symbols.forEach(sym => {
+        // 找出最佳买价（最低 ask）和卖价（最高 bid）
+        let bestAsk = Infinity, bestAskEx = '';
+        let bestBid = 0, bestBidEx = '';
+        const exData = {};
+
+        exchanges.forEach(ex => {
+            const ticker = prices[ex][sym];
+            if (ticker && ticker.ask > 0 && ticker.bid > 0) {
+                exData[ex] = ticker;
+                if (ticker.ask < bestAsk) { bestAsk = ticker.ask; bestAskEx = ex; }
+                if (ticker.bid > bestBid) { bestBid = ticker.bid; bestBidEx = ex; }
+            }
+        });
+
+        // 计算最大价差
+        const maxSpread = (bestBid > 0 && bestAsk < Infinity)
+            ? (bestBid - bestAsk) / bestAsk
+            : 0;
+
+        html += '<tr>';
+        html += '<td>' + sym + '</td>';
+
+        exchanges.forEach(ex => {
+            const t = exData[ex];
+            if (t) {
+                const isBestAsk = ex === bestAskEx;
+                const isBestBid = ex === bestBidEx;
+                const cls = 'price-cell' + (isBestAsk || isBestBid ? ' price-best' : '');
+                html += '<td class="' + cls + '">';
+                html += '<div class="price-bid">' + formatPrice(t.bid) + '</div>';
+                html += '<div class="price-ask">' + formatPrice(t.ask) + '</div>';
+                html += '</td>';
             } else {
-                changelog.classList.add('hidden-view');
-                dashboard.classList.remove('hidden-view');
-                navCL.classList.remove('active');
-                navDash.classList.add('active');
+                html += '<td class="price-cell text-muted">--</td>';
             }
+        });
+
+        // 价差列
+        const spreadCls = maxSpread >= 0.003 ? 'spread-good' : 'spread-low';
+        html += '<td><span class="spread-badge ' + spreadCls + '">' + formatPct(maxSpread) + '</span></td>';
+        html += '</tr>';
+    });
+
+    tbody.innerHTML = html;
+    document.getElementById('priceUpdateTime').textContent = '更新于 ' + formatTime(Date.now());
+}
+
+
+/* ===================================================================
+ * 价差趋势图（Chart.js）
+ * =================================================================== */
+
+/** 初始化趋势图 */
+function initSpreadChart(symbols) {
+    const ctx = document.getElementById('spreadChart').getContext('2d');
+    const colors = ['#FCD535', '#0ECB81', '#2196F3', '#F6465D', '#FBBF24'];
+
+    spreadHistory = {};
+    spreadLabels = [];
+    symbols.forEach(sym => { spreadHistory[sym] = []; });
+
+    const datasets = symbols.map((sym, i) => ({
+        label: sym,
+        data: [],
+        borderColor: colors[i % colors.length],
+        backgroundColor: colors[i % colors.length] + '20',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: false,
+    }));
+
+    spreadChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: { color: '#848E9C', font: { size: 11 }, boxWidth: 12, boxHeight: 2 },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#5E6673', font: { size: 10 }, maxRotation: 0 },
+                    grid: { color: 'rgba(42,46,57,0.3)' },
+                },
+                y: {
+                    ticks: {
+                        color: '#848E9C',
+                        font: { size: 10 },
+                        callback: v => v.toFixed(2) + '%',
+                    },
+                    grid: { color: 'rgba(42,46,57,0.3)' },
+                },
+            },
+        },
+    });
+}
+
+/** 计算单个币种的最大价差 */
+function calculateMaxSpread(prices, symbol) {
+    let bestAsk = Infinity, bestBid = 0;
+    Object.keys(prices).forEach(ex => {
+        const t = prices[ex][symbol];
+        if (t && t.ask > 0 && t.bid > 0) {
+            if (t.ask < bestAsk) bestAsk = t.ask;
+            if (t.bid > bestBid) bestBid = t.bid;
         }
+    });
+    if (bestAsk === Infinity || bestBid === 0) return 0;
+    return ((bestBid - bestAsk) / bestAsk) * 100; // 返回百分比数值
+}
 
-        // ==================== WebSocket 连接 ====================
-        /**
-         * 建立 WebSocket 连接，接收实时数据推送
-         */
-        function connectWebSocket() {
-            const wsUrl = `ws://${window.location.host}/ws`;
-            ws = new WebSocket(wsUrl);
+/** 更新趋势图数据 */
+function updateSpreadChart(prices) {
+    if (!spreadChart) return;
+    const symbols = Object.keys(spreadHistory);
+    if (symbols.length === 0) return;
 
-            ws.onopen = function() {
-                console.log("WebSocket 已连接");
-                // 启动心跳保活
-                setInterval(function() {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send("ping");
-                    }
-                }, 30000);
-            };
+    const timeLabel = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    spreadLabels.push(timeLabel);
+    if (spreadLabels.length > 20) spreadLabels.shift();
 
-            ws.onmessage = function(event) {
-                const msg = JSON.parse(event.data);
-                handleMessage(msg);
-            };
+    symbols.forEach((sym, i) => {
+        const spread = calculateMaxSpread(prices, sym);
+        spreadHistory[sym].push(spread);
+        if (spreadHistory[sym].length > 20) spreadHistory[sym].shift();
+        spreadChart.data.datasets[i].data = spreadHistory[sym];
+    });
 
-            ws.onerror = function(error) {
-                console.error("WebSocket 错误:", error);
-            };
+    spreadChart.data.labels = spreadLabels;
+    spreadChart.update('none');
+}
 
-            ws.onclose = function() {
-                console.log("WebSocket 已断开，3秒后重连...");
-                setTimeout(connectWebSocket, 3000);
-            };
+
+/* ===================================================================
+ * KPI 从价格数据更新
+ * =================================================================== */
+
+/** 从价格数据计算平均价差并更新 KPI */
+function updateKpiFromPrices(prices) {
+    const symbols = Object.keys(spreadHistory);
+    if (symbols.length === 0) return;
+
+    let totalSpread = 0;
+    let count = 0;
+    symbols.forEach(sym => {
+        const spread = calculateMaxSpread(prices, sym);
+        if (spread > 0) { totalSpread += spread; count++; }
+    });
+
+    const avg = count > 0 ? totalSpread / count : 0;
+    document.getElementById('kpiAvgSpread').textContent = avg.toFixed(3) + '%';
+    document.getElementById('kpiAvgSpreadSub').textContent = count + ' 个币种均值';
+}
+
+
+/* ===================================================================
+ * 套利机会列表
+ * =================================================================== */
+
+/** 渲染套利机会卡片 */
+function renderOpportunities(opportunities) {
+    latestOpportunities = opportunities || [];
+    const list = document.getElementById('oppList');
+    document.getElementById('oppCountText').textContent = latestOpportunities.length + ' 个';
+    document.getElementById('kpiOpps').textContent = latestOpportunities.length;
+
+    if (latestOpportunities.length === 0) {
+        list.innerHTML = '<div class="empty-state">暂无套利机会<br>可尝试降低最小利润率阈值</div>';
+        return;
+    }
+
+    let html = '';
+    latestOpportunities.forEach(opp => {
+        const riskClass = 'risk-' + (opp.risk_level || 'medium');
+        const profitColor = opp.net_profit_rate >= 0 ? 'text-up' : 'text-muted';
+        const profitSign = opp.estimated_profit >= 0 ? '' : '';
+
+        html += '<div class="opp-card">';
+        html += '<div class="opp-card-header">';
+        html += '<span class="opp-symbol">' + opp.symbol + '</span>';
+        html += '<div class="risk-light ' + riskClass + '" title="' + opp.risk_level + '"></div>';
+        html += '</div>';
+        html += '<div class="opp-route">';
+        html += '<div><div class="opp-exchange">' + opp.buy_exchange + '</div>';
+        html += '<div class="opp-price">买 ' + formatPrice(opp.buy_price) + '</div></div>';
+        html += '<span class="opp-route-arrow">→</span>';
+        html += '<div><div class="opp-exchange">' + opp.sell_exchange + '</div>';
+        html += '<div class="opp-price">卖 ' + formatPrice(opp.sell_price) + '</div></div>';
+        html += '</div>';
+        html += '<div class="opp-stats">';
+        html += '<div><span class="opp-stat-label">价差</span> <span class="opp-stat-value">' + formatPct(opp.spread_percent) + '</span></div>';
+        html += '<div><span class="opp-stat-label">净利率</span> <span class="opp-stat-value ' + profitColor + '">' + formatPct(opp.net_profit_rate) + '</span></div>';
+        html += '</div>';
+        html += '<div class="opp-stats">';
+        html += '<div><span class="opp-stat-label">预估收益</span> <span class="opp-stat-value ' + profitColor + '">' + formatUsdt(opp.estimated_profit) + '</span></div>';
+        html += '<button class="btn btn-secondary btn-sm" onclick="executeOpportunity(\'' + opp.symbol + '\',\'' + opp.buy_exchange + '\',\'' + opp.sell_exchange + '\',' + opp.buy_price + ',' + opp.sell_price + ')">执行</button>';
+        html += '</div>';
+        html += '</div>';
+    });
+
+    list.innerHTML = html;
+}
+
+
+/* ===================================================================
+ * 交易历史
+ * =================================================================== */
+
+/** 新增一笔交易到历史列表顶部 */
+function addTradeToHistory(trade) {
+    tradeHistory.unshift(trade);
+    if (tradeHistory.length > 50) tradeHistory.pop();
+    renderTradeTable();
+    updateTradeStats();
+}
+
+/** 渲染交易历史表格 */
+function renderTradeTable() {
+    const tbody = document.getElementById('tradeTableBody');
+    document.getElementById('tradeCountText').textContent = tradeHistory.length + ' 笔';
+
+    if (tradeHistory.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无交易记录</td></tr>';
+        return;
+    }
+
+    let html = '';
+    tradeHistory.forEach(t => {
+        const route = t.buy_exchange + ' → ' + t.sell_exchange;
+        const statusCls = 'status-' + (t.status || 'pending');
+        const profitColor = t.profit >= 0 ? 'text-up' : 'text-down';
+        const paperMark = t.paper_trade ? ' <span style="color:var(--color-info);font-size:10px;">[模拟]</span>' : '';
+
+        html += '<tr>';
+        html += '<td>' + formatTime(t.timestamp) + paperMark + '</td>';
+        html += '<td>' + t.symbol + '</td>';
+        html += '<td style="font-family:var(--font-ui);">' + route + '</td>';
+        html += '<td>' + formatPrice(t.buy_price) + '</td>';
+        html += '<td>' + formatPrice(t.sell_price) + '</td>';
+        html += '<td>' + (t.amount || 0) + '</td>';
+        html += '<td class="' + profitColor + '">' + formatUsdt(t.profit) + '</td>';
+        html += '<td><span class="status-badge ' + statusCls + '">' + t.status + '</span></td>';
+        html += '</tr>';
+    });
+
+    tbody.innerHTML = html;
+}
+
+/** 更新交易统计 */
+function updateTradeStats() {
+    const total = tradeHistory.length;
+    const filled = tradeHistory.filter(t => t.status === 'filled').length;
+    const winRate = total > 0 ? Math.round(filled / total * 100) : 0;
+    const totalProfit = tradeHistory.reduce((sum, t) => sum + (t.profit || 0), 0);
+
+    document.getElementById('statTotalTrades').textContent = total;
+    document.getElementById('statWinRate').textContent = winRate + '%';
+    document.getElementById('statTotalProfit').textContent = formatUsdt(totalProfit);
+    document.getElementById('kpiTrades').textContent = total;
+    document.getElementById('kpiProfit').textContent = formatUsdt(totalProfit);
+}
+
+
+/* ===================================================================
+ * 交易所状态面板
+ * =================================================================== */
+
+/** 渲染交易所状态列表 */
+function renderExchangeStatus(data) {
+    const list = document.getElementById('exchangeList');
+    const exchanges = data.exchanges || [];
+
+    if (exchanges.length === 0) {
+        list.innerHTML = '<div class="empty-state">无交易所数据</div>';
+        return;
+    }
+
+    let html = '';
+    exchanges.forEach(ex => {
+        const statusColor = ex.connected ? 'var(--color-up)' :
+                           (ex.error_count > 0 ? 'var(--color-warning)' : 'var(--color-down)');
+        const latencyColor = ex.latency_ms < 300 ? 'var(--color-up)' :
+                            (ex.latency_ms < 800 ? 'var(--color-warning)' : 'var(--color-down)');
+        const errorBadge = ex.error_count > 0
+            ? '<span style="color:var(--color-down);font-size:11px;">(' + ex.error_count + '错误)</span>'
+            : '';
+
+        html += '<div class="exchange-item">';
+        html += '<div class="exchange-item-header">';
+        html += '<span class="exchange-name">' + ex.name + '</span>';
+        html += '<div style="width:8px;height:8px;border-radius:50%;background:' + statusColor + ';"></div>';
+        html += '</div>';
+        html += '<div class="exchange-latency" style="color:' + latencyColor + ';">';
+        html += ex.latency_ms > 0 ? ex.latency_ms.toFixed(0) + ' ms' : '-- ms';
+        html += ' ' + errorBadge;
+        html += '</div>';
+        html += '</div>';
+    });
+
+    list.innerHTML = html;
+}
+
+
+/* ===================================================================
+ * 日志流
+ * =================================================================== */
+
+/** 添加日志到缓冲区 */
+function addLog(logData) {
+    logBuffer.push(logData);
+    if (logBuffer.length > MAX_LOGS) logBuffer.shift();
+
+    // 更新底部栏最新日志
+    const latestLine = document.getElementById('latestLogLine');
+    latestLine.textContent = '[' + logData.level + '] ' + logData.message;
+    latestLine.className = 'mono log-level-' + logData.level;
+
+    if (!logPaused) renderLogs();
+}
+
+/** 渲染日志流 */
+function renderLogs() {
+    const stream = document.getElementById('logStream');
+    const filter = document.getElementById('logSearch').value.toLowerCase();
+
+    const filtered = logBuffer.filter(log =>
+        !filter || log.message.toLowerCase().includes(filter) ||
+        log.level.toLowerCase().includes(filter)
+    );
+
+    let html = '';
+    filtered.slice(-100).forEach(log => {
+        const ts = new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+        html += '<div class="log-line">';
+        html += '<span class="log-time">' + ts + '</span>';
+        html += '<span class="log-level log-level-' + log.level + '">' + log.level + '</span>';
+        html += '<span class="log-msg">' + log.message + '</span>';
+        html += '</div>';
+    });
+
+    stream.innerHTML = html;
+    stream.scrollTop = stream.scrollHeight;
+}
+
+/** 切换日志暂停/继续 */
+function toggleLogPause(event) {
+    event.stopPropagation();
+    logPaused = !logPaused;
+    document.getElementById('logPauseBtn').textContent = logPaused ? '继续' : '暂停';
+    if (!logPaused) renderLogs();
+}
+
+
+/* ===================================================================
+ * 控制操作
+ * =================================================================== */
+
+/** 启动/停止监控 */
+async function toggleMonitor() {
+    const action = isMonitorRunning ? 'stop' : 'start';
+    try {
+        await fetch(API_BASE + '/api/scanner/' + action, { method: 'POST' });
+        // 状态会通过 WS 或 REST 更新
+        refreshStats();
+    } catch (e) {
+        console.error('监控操作失败:', e);
+    }
+}
+
+/** 切换自动套利 */
+async function toggleAutoExecute() {
+    isAutoExecute = !isAutoExecute;
+    const toggle = document.getElementById('autoExecToggle');
+    toggle.className = 'toggle' + (isAutoExecute ? ' active' : '');
+
+    try {
+        const action = isAutoExecute ? 'start' : 'stop';
+        await fetch(API_BASE + '/api/arbitrage/' + action, { method: 'POST' });
+    } catch (e) {
+        console.error('自动套利操作失败:', e);
+        // 回滚 UI
+        isAutoExecute = !isAutoExecute;
+        toggle.className = 'toggle' + (isAutoExecute ? ' active' : '');
+    }
+}
+
+/** 手动执行套利机会 */
+async function executeOpportunity(symbol, buyEx, sellEx, buyPrice, sellPrice) {
+    if (!confirm('确认执行 ' + symbol + ' 套利？\n' + buyEx + ' 买 → ' + sellEx + ' 卖')) return;
+
+    const opp = {
+        symbol, buy_exchange: buyEx, sell_exchange: sellEx,
+        buy_price: buyPrice, sell_price: sellPrice,
+        spread_percent: (sellPrice - buyPrice) / buyPrice,
+        net_profit_rate: 0, estimated_profit: 0, risk_level: 'medium',
+    };
+
+    try {
+        const resp = await fetch(API_BASE + '/api/trades/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(opp),
+        });
+        const result = await resp.json();
+        if (result.status === 'ok') {
+            addTradeToHistory(result.result);
+        } else {
+            alert('执行失败: ' + (result.error || '未知错误'));
         }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
 
-        /**
-         * 处理 WebSocket 接收到的消息
-         */
-        function handleMessage(msg) {
-            switch (msg.type) {
-                case "status":
-                    updateSystemStatus(msg.data);
-                    break;
-                case "prices":
-                    latestPriceData = msg.data;
-                    renderPriceTable(msg.data);
-                    document.getElementById("priceUpdateTime").textContent =
-                        "更新于 " + new Date().toLocaleTimeString();
-                    break;
-                case "opportunities":
-                    renderOpportunities(msg.data);
-                    break;
-                case "trade":
-                    addTradeToHistory(msg.data);
-                    refreshStats();
-                    break;
-            }
+
+/* ===================================================================
+ * 配置面板
+ * =================================================================== */
+
+/** 切换配置面板显示 */
+function toggleSettings() {
+    const panel = document.getElementById('configPanel');
+    panel.classList.toggle('open');
+}
+
+/** 切换模拟交易 */
+function togglePaperTrade() {
+    const toggle = document.getElementById('cfgPaperToggle');
+    toggle.classList.toggle('active');
+    const isPaper = toggle.classList.contains('active');
+    if (!isPaper) {
+        if (!confirm('切换到实盘交易将使用真实资金，确认？')) {
+            toggle.classList.add('active');
         }
+    }
+}
 
-        // ==================== 系统状态更新 ====================
-        /**
-         * 更新系统状态显示
-         */
-        function updateSystemStatus(status) {
-            document.getElementById("statExchanges").textContent = status.exchanges_count || 0;
-            document.getElementById("statSymbols").textContent = status.symbols_count || 0;
-            document.getElementById("statOpportunities").textContent = status.opportunities_count || 0;
-            document.getElementById("statTrades").textContent = status.trades_count || 0;
+/** 加载配置到表单 */
+function initSettings(config) {
+    currentConfig = config;
+    currentExchanges = config.exchanges || [];
+    currentSymbols = config.symbols || [];
 
-            const dot = document.getElementById("systemStatusDot");
-            const text = document.getElementById("systemStatusText");
+    document.getElementById('cfgMinProfit').value = config.min_profitability || 0.003;
+    document.getElementById('cfgOrderAmount').value = config.order_amount || 0.01;
+    document.getElementById('cfgScanInterval').value = config.scan_interval || 10;
+    document.getElementById('cfgTopN').value = config.top_n_opportunities || 20;
+    document.getElementById('cfgFeeRate').value = config.fee_rate || 0.001;
 
-            if (status.scanner_running) {
-                dot.classList.add("active");
-                text.textContent = "运行中";
-            } else {
-                dot.classList.remove("active");
-                text.textContent = "未运行";
-            }
-        }
+    const paperToggle = document.getElementById('cfgPaperToggle');
+    if (config.paper_trade) {
+        paperToggle.classList.add('active');
+    } else {
+        paperToggle.classList.remove('active');
+    }
 
-        // ==================== 价格表渲染 ====================
-        /**
-         * 渲染价格对比表
-         */
-        function renderPriceTable(prices) {
-            if (!prices || Object.keys(prices).length === 0) return;
+    // 初始化趋势图（使用配置中的交易对）
+    if (currentSymbols.length > 0 && !spreadChart) {
+        initSpreadChart(currentSymbols);
+    }
+}
 
-            const exchanges = Object.keys(prices);
-            currentExchanges = exchanges;
+/** 保存配置 */
+async function saveConfig() {
+    const paperToggle = document.getElementById('cfgPaperToggle');
+    const data = {
+        min_profitability: parseFloat(document.getElementById('cfgMinProfit').value),
+        order_amount: parseFloat(document.getElementById('cfgOrderAmount').value),
+        scan_interval: parseInt(document.getElementById('cfgScanInterval').value),
+        top_n_opportunities: parseInt(document.getElementById('cfgTopN').value),
+        fee_rate: parseFloat(document.getElementById('cfgFeeRate').value),
+        paper_trade: paperToggle.classList.contains('active'),
+    };
 
-            // 构建表头
-            const headerRow = document.getElementById("priceTableHeader");
-            let headerHtml = "<th>交易对</th>";
-            exchanges.forEach(function(ex) {
-                headerHtml += `<th>${ex}</th>`;
-            });
-            headerHtml += "<th>最大价差</th><th>价差%</th>";
-            headerRow.innerHTML = headerHtml;
-
-            // 收集所有交易对
-            const allSymbols = new Set();
-            exchanges.forEach(function(ex) {
-                if (prices[ex]) {
-                    Object.keys(prices[ex]).forEach(function(sym) {
-                        allSymbols.add(sym);
-                    });
-                }
-            });
-
-            // 构建表格内容
-            const tbody = document.getElementById("priceTableBody");
-            let bodyHtml = "";
-
-            allSymbols.forEach(function(symbol) {
-                let prices_row = `<td style="font-weight:600;color:#32F08C;">${symbol}</td>`;
-                let minAsk = Infinity;
-                let maxBid = -Infinity;
-                let minAskExchange = "";
-                let maxBidExchange = "";
-
-                exchanges.forEach(function(ex) {
-                    const ticker = prices[ex] && prices[ex][symbol];
-                    if (ticker) {
-                        const ask = ticker.ask;
-                        const bid = ticker.bid;
-                        if (ask > 0 && ask < minAsk) {
-                            minAsk = ask;
-                            minAskExchange = ex;
-                        }
-                        if (bid > 0 && bid > maxBid) {
-                            maxBid = bid;
-                            maxBidExchange = ex;
-                        }
-                        prices_row += `<td><div style="font-size:12px;">
-                            <span style="color:#EF4444;">卖:${formatPrice(ask)}</span><br>
-                            <span style="color:#32F08C;">买:${formatPrice(bid)}</span>
-                        </div></td>`;
-                    } else {
-                        prices_row += "<td style='color:#475569;'>--</td>";
-                    }
-                });
-
-                // 计算最大价差
-                let spreadHtml = "";
-                if (minAsk < Infinity && maxBid > -Infinity && minAskExchange !== maxBidExchange) {
-                    const spread = maxBid - minAsk;
-                    const spreadPct = (spread / minAsk * 100);
-                    const cls = spread > 0 ? "spread-positive" : "spread-negative";
-                    spreadHtml = `<td class="${cls}" style="font-size:12px;">
-                        ${minAskExchange}->${maxBidExchange}<br>
-                        <span style="font-weight:600;">${formatPrice(spread)}</span>
-                    </td><td><span class="spread-badge ${cls}">${spreadPct.toFixed(3)}%</span></td>`;
-                } else {
-                    spreadHtml = "<td style='color:#475569;'>--</td><td style='color:#475569;'>--</td>";
-                }
-
-                bodyHtml += `<tr>${prices_row}${spreadHtml}</tr>`;
-            });
-
-            tbody.innerHTML = bodyHtml || '<tr><td colspan="99" class="empty-state">无价格数据</td></tr>';
-        }
-
-        // ==================== 套利机会渲染 ====================
-        /**
-         * 渲染套利机会列表
-         */
-        function renderOpportunities(opportunities) {
-            const panel = document.getElementById("opportunitiesPanel");
-            document.getElementById("statOpportunities").textContent = opportunities.length;
-
-            if (!opportunities || opportunities.length === 0) {
-                panel.innerHTML = '<div class="empty-state">暂无套利机会</div>';
-                return;
-            }
-
-            let html = "";
-            opportunities.forEach(function(opp) {
-                const profitPct = (opp.net_profit_rate * 100).toFixed(3);
-                const profitUsd = opp.estimated_profit.toFixed(4);
-                const riskClass = "risk-" + (opp.risk_level || "medium");
-
-                html += `<div class="opportunity-card">
-                    <div class="opp-header">
-                        <span class="opp-symbol">${opp.symbol}</span>
-                        <span class="risk-badge ${riskClass}">${opp.risk_level || "medium"}</span>
-                    </div>
-                    <div class="opp-route">
-                        买入: ${opp.buy_exchange} <span class="arrow">-></span> 卖出: ${opp.sell_exchange}
-                    </div>
-                    <div class="opp-prices">
-                        <span class="buy">买价: ${formatPrice(opp.buy_price)}</span>
-                        <span class="sell">卖价: ${formatPrice(opp.sell_price)}</span>
-                    </div>
-                    <div class="opp-footer">
-                        <span class="opp-profit">+${profitPct}% (${profitUsd} USDT)</span>
-                        <button class="btn btn-primary btn-sm" onclick='executeOpportunity(${JSON.stringify(opp)})'>执行</button>
-                    </div>
-                </div>`;
-            });
-
-            panel.innerHTML = html;
-        }
-
-        // ==================== 交易历史渲染 ====================
-        /**
-         * 添加一笔交易到历史列表
-         */
-        function addTradeToHistory(trade) {
-            const container = document.getElementById("tradeHistory");
-            if (container.querySelector(".empty-state")) {
-                container.innerHTML = "";
-            }
-
-            const statusClass = "status-" + (trade.status || "pending");
-            const profitStr = trade.profit ? trade.profit.toFixed(4) + " USDT" : "--";
-            const tradeType = trade.paper_trade ? "模拟" : "实盘";
-
-            const item = document.createElement("div");
-            item.className = "trade-item";
-            item.innerHTML = `
-                <div>${trade.timestamp || '--'}</div>
-                <div style="color:#94A3B8;">${trade.symbol}</div>
-                <div style="font-size:11px;color:#64748B;">${tradeType} ${trade.buy_exchange}->${trade.sell_exchange}</div>
-                <div class="trade-status ${statusClass}">${trade.status || 'pending'}</div>
-            `;
-            container.insertBefore(item, container.firstChild);
-
-            // 最多显示 50 条
-            while (container.children.length > 50) {
-                container.removeChild(container.lastChild);
-            }
-        }
-
-        /**
-         * 从 API 加载交易历史
-         */
-        async function loadTradeHistory() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/trades?limit=50`);
-                const data = await resp.json();
-                const container = document.getElementById("tradeHistory");
-
-                if (!data.trades || data.trades.length === 0) {
-                    container.innerHTML = '<div class="empty-state">暂无交易记录</div>';
-                    return;
-                }
-
-                let html = "";
-                data.trades.forEach(function(trade) {
-                    const statusClass = "status-" + (trade.status || "pending");
-                    const tradeType = trade.paper_trade ? "模拟" : "实盘";
-                    html += `<div class="trade-item">
-                        <div>${trade.timestamp || '--'}</div>
-                        <div style="color:#94A3B8;">${trade.symbol}</div>
-                        <div style="font-size:11px;color:#64748B;">${tradeType} ${trade.buy_exchange}->${trade.sell_exchange}</div>
-                        <div class="trade-status ${statusClass}">${trade.status || 'pending'}</div>
-                    </div>`;
-                });
-                container.innerHTML = html;
-            } catch (e) {
-                console.error("加载交易历史失败:", e);
-            }
-        }
-
-        // ==================== API 调用 ====================
-        /**
-         * 刷新统计数据
-         */
-        async function refreshStats() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/status`);
-                const status = await resp.json();
-                updateSystemStatus(status);
-            } catch (e) {
-                console.error("获取状态失败:", e);
-            }
-        }
-
-        /**
-         * 从 API 获取最新价格
-         */
-        async function fetchPrices() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/prices`);
-                const data = await resp.json();
-                if (data.prices) {
-                    latestPriceData = data.prices;
-                    renderPriceTable(data.prices);
-                    document.getElementById("priceUpdateTime").textContent =
-                        "更新于 " + new Date().toLocaleTimeString();
-                }
-            } catch (e) {
-                console.error("获取价格失败:", e);
-            }
-        }
-
-        /**
-         * 从 API 获取套利机会
-         */
-        async function fetchOpportunities() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/opportunities`);
-                const data = await resp.json();
-                renderOpportunities(data.opportunities || []);
-            } catch (e) {
-                console.error("获取机会失败:", e);
-            }
-        }
-
-        /**
-         * 切换监控状态（启动/停止）
-         */
-        async function toggleMonitor() {
-            if (!isMonitorRunning) {
-                await fetch(`${API_BASE}/api/scanner/start`, {method: "POST"});
-                isMonitorRunning = true;
-                document.getElementById("startMonitorBtn").style.display = "none";
-                document.getElementById("stopMonitorBtn").style.display = "";
-            } else {
-                await fetch(`${API_BASE}/api/scanner/stop`, {method: "POST"});
-                await fetch(`${API_BASE}/api/arbitrage/stop`, {method: "POST"});
-                isMonitorRunning = false;
-                isAutoExecute = false;
-                document.getElementById("autoExecuteToggle").checked = false;
-                document.getElementById("startMonitorBtn").style.display = "";
-                document.getElementById("stopMonitorBtn").style.display = "none";
-            }
+    try {
+        const resp = await fetch(API_BASE + '/api/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        const result = await resp.json();
+        if (result.status === 'ok') {
+            alert('配置已保存');
             refreshStats();
+        } else {
+            alert('保存失败: ' + (result.error || '未知错误'));
         }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
 
-        /**
-         * 切换自动执行
-         */
-        async function toggleAutoExecute() {
-            const enabled = document.getElementById("autoExecuteToggle").checked;
-            if (enabled) {
-                await fetch(`${API_BASE}/api/arbitrage/start`, {method: "POST"});
-                isAutoExecute = true;
-            } else {
-                await fetch(`${API_BASE}/api/arbitrage/stop`, {method: "POST"});
-                isAutoExecute = false;
-            }
+
+/* ===================================================================
+ * 底部日志栏切换
+ * =================================================================== */
+function toggleLogs() {
+    const container = document.getElementById('logContainer');
+    const toggleText = document.getElementById('logToggleText');
+    container.classList.toggle('open');
+    toggleText.textContent = container.classList.contains('open') ? '收起' : '展开';
+}
+
+
+/* ===================================================================
+ * REST API 轮询（WebSocket 兜底 + 补充数据）
+ * =================================================================== */
+
+/** 从 REST 获取系统状态 */
+async function refreshStats() {
+    try {
+        const resp = await fetch(API_BASE + '/api/status');
+        const status = await resp.json();
+        updateSystemStatus(status);
+    } catch (e) {
+        console.error('获取状态失败:', e);
+    }
+}
+
+/** 从 REST 获取交易所状态 */
+async function refreshExchanges() {
+    try {
+        const resp = await fetch(API_BASE + '/api/exchanges');
+        const data = await resp.json();
+        renderExchangeStatus(data);
+    } catch (e) {
+        console.error('获取交易所状态失败:', e);
+    }
+}
+
+/** 从 REST 获取价格（WS 断线时兜底） */
+async function fetchPrices() {
+    try {
+        const resp = await fetch(API_BASE + '/api/prices');
+        const data = await resp.json();
+        if (data.prices) {
+            renderPriceTable(data.prices);
+            updateSpreadChart(data.prices);
+            updateKpiFromPrices(data.prices);
         }
+    } catch (e) {
+        console.error('获取价格失败:', e);
+    }
+}
 
-        /**
-         * 手动执行单个套利机会
-         */
-        async function executeOpportunity(opp) {
-            if (!confirm(`确认执行 ${opp.symbol} 套利？\n买入: ${opp.buy_exchange} @ ${opp.buy_price}\n卖出: ${opp.sell_exchange} @ ${opp.sell_price}`)) {
-                return;
-            }
-            try {
-                const resp = await fetch(`${API_BASE}/api/trades/execute`, {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify(opp),
-                });
-                const result = await resp.json();
-                if (result.status === "ok") {
-                    alert("交易已提交: " + (result.result.status || "完成"));
-                    refreshStats();
-                    loadTradeHistory();
-                } else {
-                    alert("交易失败: " + (result.error || "未知错误"));
-                }
-            } catch (e) {
-                alert("请求失败: " + e.message);
-            }
+/** 从 REST 获取机会（WS 断线时兜底） */
+async function fetchOpportunities() {
+    try {
+        const resp = await fetch(API_BASE + '/api/opportunities');
+        const data = await resp.json();
+        if (data.opportunities) {
+            renderOpportunities(data.opportunities);
         }
+    } catch (e) {
+        console.error('获取机会失败:', e);
+    }
+}
 
-        // ==================== 设置面板 ====================
-        /**
-         * 展开/收起设置面板
-         */
-        function toggleSettings() {
-            document.getElementById("settingsBody").classList.toggle("open");
+/** 从 REST 获取交易历史 */
+async function loadTradeHistory() {
+    try {
+        const resp = await fetch(API_BASE + '/api/trades?limit=50');
+        const data = await resp.json();
+        tradeHistory = data.trades || [];
+        renderTradeTable();
+        updateTradeStats();
+    } catch (e) {
+        console.error('获取交易历史失败:', e);
+    }
+}
+
+/** 从 REST 获取配置 */
+async function loadConfig() {
+    try {
+        const resp = await fetch(API_BASE + '/api/config');
+        const config = await resp.json();
+        initSettings(config);
+    } catch (e) {
+        console.error('获取配置失败:', e);
+    }
+}
+
+/** 启动 REST 兜底轮询（WS 断线时） */
+function startRestFallback() {
+    restFallbackActive = true;
+    timers.priceFallback = setInterval(fetchPrices, 5000);
+    timers.oppFallback = setInterval(fetchOpportunities, 5000);
+}
+
+/** 停止 REST 兜底 */
+function stopRestFallback() {
+    restFallbackActive = false;
+    clearInterval(timers.priceFallback);
+    clearInterval(timers.oppFallback);
+}
+
+
+/* ===================================================================
+ * 初始化
+ * =================================================================== */
+
+async function init() {
+    // 1. 加载配置（含交易对列表，用于初始化趋势图）
+    await loadConfig();
+
+    // 2. 如果配置加载成功但趋势图未初始化，用默认值
+    if (!spreadChart && currentSymbols.length > 0) {
+        initSpreadChart(currentSymbols);
+    }
+
+    // 3. 连接 WebSocket
+    connectWebSocket();
+
+    // 4. 立即获取一次数据
+    refreshStats();
+    refreshExchanges();
+    loadTradeHistory();
+    fetchPrices();
+    fetchOpportunities();
+
+    // 5. 启动定时轮询（补充 WS 不推送的数据）
+    timers.status = setInterval(refreshStats, 10000);      // 状态 10s
+    timers.exchanges = setInterval(refreshExchanges, 5000); // 交易所状态 5s
+    timers.trades = setInterval(loadTradeHistory, 60000);   // 交易历史 60s
+
+    // 6. 心跳（防止 WS 超时断开）
+    timers.heartbeat = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send('ping');
         }
+    }, 30000);
+}
 
-        /**
-         * 最小利润率滑块变化
-         */
-        function onMinProfitChange() {
-            const val = document.getElementById("minProfitSlider").value;
-            document.getElementById("minProfitValue").textContent = val + "%";
-        }
+// 页面加载完成后启动
+window.addEventListener('DOMContentLoaded', init);
+</script>
 
-        /**
-         * 保存配置到后端
-         */
-        async function saveConfig() {
-            const minProfit = parseFloat(document.getElementById("minProfitSlider").value) / 100;
-            const orderAmount = parseFloat(document.getElementById("orderAmountInput").value);
-            const scanInterval = parseInt(document.getElementById("scanIntervalInput").value);
-            const paperTrade = document.getElementById("paperTradeToggle").checked;
-
-            const exchanges = [];
-            document.querySelectorAll("#exchangeCheckboxes input:checked").forEach(function(cb) {
-                exchanges.push(cb.value);
-            });
-
-            const symbols = [];
-            document.querySelectorAll("#symbolCheckboxes input:checked").forEach(function(cb) {
-                symbols.push(cb.value);
-            });
-
-            try {
-                await fetch(`${API_BASE}/api/config`, {
-                    method: "PUT",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({
-                        min_profitability: minProfit,
-                        order_amount: orderAmount,
-                        scan_interval: scanInterval,
-                        paper_trade: paperTrade,
-                        exchanges: exchanges,
-                        symbols: symbols,
-                    }),
-                });
-                alert("配置已保存");
-                refreshStats();
-            } catch (e) {
-                alert("保存失败: " + e.message);
-            }
-        }
-
-        /**
-         * 初始化设置面板的交易所和交易对复选框
-         */
-        async function initSettings() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/config`);
-                const cfg = await resp.json();
-
-                // 设置滑块
-                document.getElementById("minProfitSlider").value = (cfg.min_profitability * 100).toFixed(1);
-                document.getElementById("minProfitValue").textContent = (cfg.min_profitability * 100).toFixed(1) + "%";
-                document.getElementById("orderAmountInput").value = cfg.order_amount;
-                document.getElementById("scanIntervalInput").value = cfg.scan_interval;
-                document.getElementById("paperTradeToggle").checked = cfg.paper_trade;
-
-                // 交易所复选框
-                const exContainer = document.getElementById("exchangeCheckboxes");
-                exContainer.innerHTML = "";
-                const allExchanges = cfg.exchanges || [];
-                allExchanges.forEach(function(ex) {
-                    const div = document.createElement("label");
-                    div.className = "checkbox-item checked";
-                    div.innerHTML = `<input type="checkbox" value="${ex}" checked> ${ex}`;
-                    exContainer.appendChild(div);
-                });
-
-                // 交易对复选框
-                const symContainer = document.getElementById("symbolCheckboxes");
-                symContainer.innerHTML = "";
-                const allSymbols = cfg.symbols || [];
-                allSymbols.forEach(function(sym) {
-                    const div = document.createElement("label");
-                    div.className = "checkbox-item checked";
-                    div.innerHTML = `<input type="checkbox" value="${sym}" checked> ${sym}`;
-                    symContainer.appendChild(div);
-                });
-
-                // 复选框变化时更新样式
-                document.querySelectorAll('.checkbox-item input').forEach(function(cb) {
-                    cb.addEventListener('change', function() {
-                        this.parentElement.classList.toggle('checked', this.checked);
-                    });
-                });
-            } catch (e) {
-                console.error("初始化设置失败:", e);
-            }
-        }
-
-        // ==================== 工具函数 ====================
-        /**
-         * 格式化价格显示
-         */
-        function formatPrice(price) {
-            if (!price || price === 0) return "--";
-            if (price < 0.01) return price.toFixed(6);
-            if (price < 1) return price.toFixed(4);
-            if (price < 100) return price.toFixed(3);
-            return price.toFixed(2);
-        }
-
-        // ==================== 初始化 ====================
-        /**
-         * 页面加载完成后初始化
-         */
-        async function init() {
-            // 建立 WebSocket 连接
-            connectWebSocket();
-
-            // 初始化设置面板
-            initSettings();
-
-            // 刷新状态
-            refreshStats();
-
-            // 加载交易历史
-            loadTradeHistory();
-
-            // 启动定时器：每 3 秒获取价格
-            priceRefreshTimer = setInterval(fetchPrices, 3000);
-
-            // 启动定时器：每 5 秒获取套利机会
-            oppRefreshTimer = setInterval(fetchOpportunities, 5000);
-
-            // 启动定时器：每 10 秒刷新状态
-            setInterval(refreshStats, 10000);
-        }
-
-        // 页面加载完成后执行初始化
-        window.addEventListener("load", init);
-    </script>
 </body>
 </html>
