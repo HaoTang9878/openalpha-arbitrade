@@ -269,6 +269,43 @@
         /* ===================================================================
          * 价格对比矩阵表
          * =================================================================== */
+        .price-filter-bar {
+            display: flex;
+            gap: 8px;
+            padding: 8px 14px;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+        .price-search {
+            flex: 1;
+            background: var(--bg-base);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: var(--font-ui);
+        }
+        .price-search::placeholder { color: var(--text-disabled); }
+        .price-filter-tabs {
+            display: flex;
+            gap: 4px;
+        }
+        .filter-tab {
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: var(--font-ui);
+        }
+        .filter-tab.active {
+            background: var(--color-accent);
+            color: #000;
+            border-color: var(--color-accent);
+        }
         .price-table-wrapper {
             overflow-x: auto;
             max-height: 320px;
@@ -576,6 +613,37 @@
         .api-key-btn.delete { background: var(--color-down); color: #fff; }
         .api-key-btn.balance { background: var(--color-info); color: #fff; }
 
+        /* 余额汇总样式 */
+        .balance-summary {
+            border-top: 1px solid var(--border);
+            padding: 10px 12px;
+        }
+        .balance-summary-title {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .balance-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .balance-exchange-name {
+            color: var(--text-primary);
+            text-transform: capitalize;
+        }
+        .balance-value {
+            font-family: var(--font-mono);
+            color: var(--color-accent);
+        }
+        .balance-value.empty { color: var(--text-disabled); }
+        .balance-value.error { color: var(--color-down); }
+
         /* Toggle 开关 */
         .toggle {
             position: relative;
@@ -761,6 +829,17 @@
                 <span class="panel-title">价格对比矩阵</span>
                 <span style="font-size:12px;color:var(--text-secondary);" id="priceUpdateTime">--</span>
             </div>
+            <div class="price-filter-bar">
+                <input type="text" class="price-search" id="priceSearch"
+                       placeholder="搜索币种（如 BTC、PEPE）..." oninput="filterPriceTable()">
+                <div class="price-filter-tabs">
+                    <button class="filter-tab active" onclick="setPriceFilter('all', this)">全部</button>
+                    <button class="filter-tab" onclick="setPriceFilter('main', this)">主流</button>
+                    <button class="filter-tab" onclick="setPriceFilter('defi', this)">DeFi</button>
+                    <button class="filter-tab" onclick="setPriceFilter('chain', this)">新公链</button>
+                    <button class="filter-tab" onclick="setPriceFilter('meme', this)">Meme</button>
+                </div>
+            </div>
             <div class="panel-body">
                 <div class="price-table-wrapper">
                     <table class="price-table" id="priceTable">
@@ -836,6 +915,12 @@
             </div>
             <div id="apiKeyList" style="padding:8px 12px;">
                 <!-- 动态生成 -->
+            </div>
+            <div class="balance-summary" id="balanceSummary" style="display:none;">
+                <div class="balance-summary-title">余额汇总</div>
+                <div id="balanceSummaryList"></div>
+                <button class="btn btn-sm" style="width:100%;margin-top:6px;font-size:11px;"
+                        onclick="refreshBalances()">刷新余额</button>
             </div>
         </div>
 
@@ -1132,6 +1217,64 @@ function updateSystemStatus(status) {
  * 价格对比矩阵表
  * =================================================================== */
 
+/**
+ * 币种分类映射表
+ * 用于价格矩阵的分类筛选功能
+ */
+const SYMBOL_CATEGORIES = {
+    main: ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'],
+    defi: ['DOGE', 'AVAX', 'ARB', 'OP', 'LINK', 'UNI'],
+    chain: ['SUI', 'SEI', 'TIA', 'INJ', 'APT'],
+    meme: ['PEPE', 'WIF', 'BONK', 'FLOKI'],
+};
+
+/**
+ * 获取币种所属分类
+ */
+function getSymbolCategory(symbol) {
+    const base = symbol.split('/')[0];
+    for (const [cat, symbols] of Object.entries(SYMBOL_CATEGORIES)) {
+        if (symbols.includes(base)) return cat;
+    }
+    return 'main';
+}
+
+/** 当前价格矩阵筛选条件 */
+let currentPriceFilter = 'all';
+
+/**
+ * 设置价格矩阵筛选条件
+ */
+function setPriceFilter(filter, btnEl) {
+    currentPriceFilter = filter;
+    document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
+    btnEl.classList.add('active');
+    if (latestPriceData) renderPriceTable(latestPriceData);
+}
+
+/**
+ * 根据搜索框和分类筛选过滤币种
+ */
+function filterPriceTable() {
+    if (latestPriceData) renderPriceTable(latestPriceData);
+}
+
+/**
+ * 判断币种是否通过当前筛选条件
+ */
+function isSymbolVisible(symbol) {
+    // 分类筛选
+    if (currentPriceFilter !== 'all') {
+        if (getSymbolCategory(symbol) !== currentPriceFilter) return false;
+    }
+    // 搜索框筛选
+    const searchText = (document.getElementById('priceSearch') || {}).value || '';
+    if (searchText.trim()) {
+        return symbol.toLowerCase().includes(searchText.trim().toLowerCase());
+    }
+    return true;
+}
+
 /** 渲染价格表（增量更新 + 闪烁动画） */
 function renderPriceTable(prices) {
     if (!prices || Object.keys(prices).length === 0) return;
@@ -1156,9 +1299,17 @@ function renderPriceTable(prices) {
     exchanges.forEach(ex => {
         Object.keys(prices[ex]).forEach(sym => allSymbols.add(sym));
     });
-    const symbols = Array.from(allSymbols).sort();
+
+    // 应用筛选：搜索 + 分类
+    const symbols = Array.from(allSymbols).sort().filter(isSymbolVisible);
 
     const tbody = document.getElementById('priceTableBody');
+
+    if (symbols.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="' + (exchanges.length + 2) + '" class="empty-state">无匹配结果</td></tr>';
+        return;
+    }
+
     let html = '';
 
     symbols.forEach(sym => {
@@ -1732,6 +1883,7 @@ async function saveApiKey(exchange) {
         if (result.status === 'ok') {
             alert(`${exchange} API Key 保存成功`);
             renderApiKeyPanel();
+            refreshBalances();
         } else {
             alert('保存失败: ' + (result.error || '未知错误'));
         }
@@ -1789,6 +1941,57 @@ async function checkBalance(exchange) {
             : `${exchange} 余额为空`);
     } catch (e) {
         alert('请求失败: ' + e.message);
+    }
+}
+
+/**
+ * 刷新所有交易所余额并渲染汇总
+ * 在 API Key 管理面板下方显示各交易所余额汇总
+ */
+async function refreshBalances() {
+    const summaryEl = document.getElementById('balanceSummary');
+    const listEl = document.getElementById('balanceSummaryList');
+
+    try {
+        const resp = await fetch(API_BASE + '/api/balances');
+        const data = await resp.json();
+        const balances = data.balances || {};
+        const message = data.message;
+
+        // 没有配置任何 API Key
+        if (Object.keys(balances).length === 0) {
+            summaryEl.style.display = 'none';
+            return;
+        }
+
+        summaryEl.style.display = 'block';
+        let html = '';
+
+        Object.entries(balances).forEach(([ex, info]) => {
+            if (info.error) {
+                html += `<div class="balance-item">
+                    <span class="balance-exchange-name">${ex}</span>
+                    <span class="balance-value error">查询失败</span>
+                </div>`;
+            } else if (info.assets && Object.keys(info.assets).length > 0) {
+                const assetLines = Object.entries(info.assets).map(([asset, a]) =>
+                    `${asset}: ${a.total}`
+                );
+                html += `<div class="balance-item">
+                    <span class="balance-exchange-name">${ex}</span>
+                    <span class="balance-value">${assetLines.join(', ')}</span>
+                </div>`;
+            } else {
+                html += `<div class="balance-item">
+                    <span class="balance-exchange-name">${ex}</span>
+                    <span class="balance-value empty">--</span>
+                </div>`;
+            }
+        });
+
+        listEl.innerHTML = html;
+    } catch (e) {
+        console.error('刷新余额失败:', e);
     }
 }
 
@@ -1920,6 +2123,7 @@ async function init() {
     fetchPrices();
     fetchOpportunities();
     renderApiKeyPanel();
+    refreshBalances();
 
     // 5. 启动定时轮询（补充 WS 不推送的数据）
     timers.status = setInterval(refreshStats, 10000);      // 状态 10s

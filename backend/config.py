@@ -36,10 +36,16 @@ SUPPORTED_EXCHANGES: List[str] = [
     "kucoin", "kraken", "mexc", "htx",
 ]
 
-# 默认监控的交易对列表（主流币 + 高波动小币种，增加套利机会）
+# 默认监控的交易对列表（主流币 + DeFi + 新公链 + Meme，共 20 个）
 DEFAULT_SYMBOLS: List[str] = [
+    # 主流币（5）
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
-    "DOGE/USDT", "AVAX/USDT", "ARB/USDT",
+    # DeFi（6）
+    "DOGE/USDT", "AVAX/USDT", "ARB/USDT", "OP/USDT", "LINK/USDT", "UNI/USDT",
+    # 新公链（5）
+    "SUI/USDT", "SEI/USDT", "TIA/USDT", "INJ/USDT", "APT/USDT",
+    # Meme（4）
+    "PEPE/USDT", "WIF/USDT", "BONK/USDT", "FLOKI/USDT",
 ]
 
 # 默认配置参数
