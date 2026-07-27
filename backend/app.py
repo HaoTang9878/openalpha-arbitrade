@@ -26,6 +26,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -36,6 +37,7 @@ from backend.auth import add_auth_middleware  # 鉴权中间件
 
 from .arbitrage import ArbitrageDetector
 from .config import Config, SUPPORTED_EXCHANGES
+from .database import Database
 from .executor import TradeExecutor
 from .models import ArbitrageOpportunity, OrderStatus, TradeResult
 from .risk_manager import RiskManager
@@ -44,10 +46,33 @@ from .scanner import PriceScanner, WebSocketScanner
 # ----------------------------------------------------------------------------
 # 日志配置
 # ----------------------------------------------------------------------------
+# 日志目录（Docker 中挂载到 ./data/logs）
+_LOG_DIR = Path(__file__).parent.parent / "data" / "logs"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# 日志格式
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+# 控制台处理器
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(logging.Formatter(_LOG_FORMAT, _LOG_DATEFMT))
+
+# 文件处理器（滚动：每个文件最大 5MB，保留 5 个备份）
+_file_handler = RotatingFileHandler(
+    filename=str(_LOG_DIR / "arbitrage.log"),
+    maxBytes=5 * 1024 * 1024,  # 5MB
+    backupCount=5,
+    encoding="utf-8",
+)
+_file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, _LOG_DATEFMT))
+
+# 配置根日志
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format=_LOG_FORMAT,
+    datefmt=_LOG_DATEFMT,
+    handlers=[_console_handler, _file_handler],
 )
 logger = logging.getLogger("openalpha")
 
@@ -62,6 +87,7 @@ scanner: Optional[PriceScanner] = None
 detector: Optional[ArbitrageDetector] = None
 executor: Optional[TradeExecutor] = None
 risk_manager: Optional[RiskManager] = None
+database: Optional[Database] = None
 
 # 运行状态标志
 scanner_running = False
@@ -196,8 +222,21 @@ async def scanner_loop() -> None:
 
                     # 自动检测套利机会
                     if detector:
-                        opportunities = detector.detect(prices)
+                        # 传入 L2 订单簿缓存用于动态滑点计算
+                        # （仅 WebSocketScanner 支持，REST 模式返回 None 回退固定滑点）
+                        orderbooks = (
+                            scanner.get_orderbooks()
+                            if hasattr(scanner, "get_orderbooks")
+                            else None
+                        )
+                        opportunities = detector.detect(
+                            prices, orderbooks=orderbooks
+                        )
                         latest_opportunities = opportunities
+
+                        # 持久化套利机会快照（用于回测分析）
+                        if opportunities and database:
+                            database.save_opportunities(opportunities)
 
                         # 广播价格更新
                         await manager.broadcast({
@@ -278,13 +317,18 @@ async def arbitrage_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理，负责初始化和清理资源"""
-    global scanner, detector, executor, risk_manager, scanner_running, scanner_task
+    global scanner, detector, executor, risk_manager, database
+    global scanner_running, scanner_task
 
     logger.info("OpenAlpha 套利系统启动中...")
 
+    # 初始化 SQLite 持久化层（交易历史 + 套利机会记录）
+    db_path = str(Path(__file__).parent.parent / "data" / "arbitrage.db")
+    database = Database(db_path)
+
     # 初始化套利检测器、交易执行器和风控管理器
     detector = ArbitrageDetector(config)
-    executor = TradeExecutor(config, config.api_keys)
+    executor = TradeExecutor(config, config.api_keys, database=database)
     risk_manager = RiskManager(config)
 
     # 优先使用 WebSocket 实时扫描器，失败则回退到 REST 轮询
@@ -327,6 +371,8 @@ async def lifespan(app: FastAPI):
         await scanner.close()
     if executor:
         await executor.close()
+    if database:
+        database.close()
 
     logger.info("OpenAlpha 套利系统已关闭")
 

@@ -437,8 +437,14 @@ class WebSocketScanner:
         # 后台 WS 监听任务
         self._ws_tasks: List[asyncio.Task] = []
 
+        # 后台 L2 订单簿监听任务
+        self._orderbook_tasks: List[asyncio.Task] = []
+
         # 内存价格缓存（实时更新）
         self.price_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+        # L2 订单簿缓存 {exchange: {symbol: {"bids": [[price, qty],...], "asks": [[price, qty],...]}}}
+        self.orderbook_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
         # 错误计数和延迟（与 PriceScanner 兼容）
         self.error_counts: Dict[str, int] = {}
@@ -501,11 +507,110 @@ class WebSocketScanner:
         )
 
     async def start(self) -> None:
-        """为每个交易所启动 watch_tickers 后台监听任务"""
+        """为每个交易所启动 watch_tickers 后台监听任务，并为非黑名单交易所启动 L2 订单簿监听"""
         for ex_name in self._exchange_instances:
             task = asyncio.create_task(self._watch_exchange(ex_name))
             self._ws_tasks.append(task)
             logger.info("已启动 %s 的 WebSocket 监听", ex_name)
+
+        # 为非黑名单交易所启动 L2 订单簿监听（仅前 5 个交易对，控制连接数）
+        # watch_order_book 每次只能订阅一个 symbol，仅对主流币订阅以避免过多连接
+        ob_symbols = self.symbols[:5]
+        if ob_symbols:
+            for ex_name in self._exchange_instances:
+                if ex_name in WS_BLACKLIST:
+                    continue
+                ob_task = asyncio.create_task(
+                    self._watch_orderbook_loop(ex_name, ob_symbols)
+                )
+                self._orderbook_tasks.append(ob_task)
+                logger.info(
+                    "已启动 %s 的 L2 订单簿监听（%d 个交易对: %s）",
+                    ex_name, len(ob_symbols), ob_symbols,
+                )
+
+    async def _watch_orderbook_loop(
+        self, exchange_name: str, symbols: List[str]
+    ) -> None:
+        """
+        监听单个交易所多个交易对的 L2 订单簿，实时更新订单簿缓存
+
+        ccxt.pro 的 watch_order_book 每次只能订阅一个 symbol，因此为每个
+        symbol 启动独立的并发监听任务以降低延迟。
+
+        Args:
+            exchange_name: 交易所名称
+            symbols: 要监听 L2 订单簿的交易对列表
+        """
+        exchange = self._exchange_instances.get(exchange_name)
+        if exchange is None:
+            return
+
+        # 为每个 symbol 启动独立的订单簿监听任务
+        ob_tasks = [
+            asyncio.create_task(
+                self._watch_single_orderbook(exchange_name, symbol)
+            )
+            for symbol in symbols
+        ]
+
+        try:
+            await asyncio.gather(*ob_tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            for t in ob_tasks:
+                t.cancel()
+            await asyncio.gather(*ob_tasks, return_exceptions=True)
+            raise
+
+    async def _watch_single_orderbook(
+        self, exchange_name: str, symbol: str
+    ) -> None:
+        """
+        监听单个交易对的 L2 订单簿更新，仅缓存前 10 档买卖盘
+
+        Args:
+            exchange_name: 交易所名称
+            symbol: 交易对
+        """
+        exchange = self._exchange_instances.get(exchange_name)
+        if exchange is None:
+            return
+
+        # 确保该交易所在订单簿缓存中有条目
+        if exchange_name not in self.orderbook_cache:
+            self.orderbook_cache[exchange_name] = {}
+
+        while True:
+            try:
+                orderbook = await exchange.watch_order_book(symbol)
+                # 只缓存前 10 档买卖盘，控制内存占用
+                self.orderbook_cache[exchange_name][symbol] = {
+                    "bids": orderbook.get("bids", [])[:10],
+                    "asks": orderbook.get("asks", [])[:10],
+                    "timestamp": orderbook.get(
+                        "timestamp", int(time.time() * 1000)
+                    ),
+                }
+            except asyncio.CancelledError:
+                logger.info(
+                    "%s 的 %s 订单簿监听已停止", exchange_name, symbol
+                )
+                raise
+            except Exception as e:
+                # 去重告警：同一错误 5 分钟内只告警一次，避免刷屏
+                error_key = f"ob:{exchange_name}:{symbol}:{str(e)[:50]}"
+                now = time.time()
+                if not hasattr(self, "_last_warn_time"):
+                    self._last_warn_time = {}
+                last_warn = self._last_warn_time.get(error_key, 0)
+                if now - last_warn > 300:  # 5 分钟
+                    logger.warning(
+                        "%s 监听 %s 订单簿失败: %s",
+                        exchange_name, symbol, e,
+                    )
+                    self._last_warn_time[error_key] = now
+                # 失败后短暂等待再重试，不影响主流程
+                await asyncio.sleep(WS_RECONNECT_DELAY)
 
     async def _watch_exchange(self, exchange_name: str) -> None:
         """
@@ -657,7 +762,15 @@ class WebSocketScanner:
             raise
 
         except Exception as e:
-            logger.warning("%s REST 轮询失败: %s", exchange_name, e)
+            # 去重：同一交易所同一错误 5 分钟内只告警一次
+            error_key = f"{exchange_name}:{str(e)[:50]}"
+            now = time.time()
+            last_warn = getattr(self, "_last_warn_time", {}).get(error_key, 0)
+            if now - last_warn > 300:  # 5 分钟
+                logger.warning("%s REST 轮询失败: %s", exchange_name, e)
+                if not hasattr(self, "_last_warn_time"):
+                    self._last_warn_time = {}
+                self._last_warn_time[error_key] = now
             self.error_counts[exchange_name] = (
                 self.error_counts.get(exchange_name, 0) + 1
             )
@@ -691,6 +804,19 @@ class WebSocketScanner:
             ex: prices for ex, prices in self.price_cache.items() if prices
         }
 
+    def get_orderbooks(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """
+        返回当前 L2 订单簿缓存（无网络 I/O，即时返回）
+
+        Returns:
+            订单簿缓存字典，格式为
+            {exchange: {symbol: {"bids": [[price, qty],...], "asks": [[price, qty],...]}}}
+        """
+        # 只返回有数据的交易所
+        return {
+            ex: obs for ex, obs in self.orderbook_cache.items() if obs
+        }
+
     def get_exchange_status(self) -> Dict[str, Dict[str, Any]]:
         """
         获取所有交易所的运行状态（与 PriceScanner 接口兼容）
@@ -712,14 +838,18 @@ class WebSocketScanner:
 
     async def close(self) -> None:
         """关闭所有 WS 连接和后台任务，释放资源"""
-        # 取消所有后台监听任务
+        # 取消所有后台监听任务（ticker + orderbook）
         for task in self._ws_tasks:
+            task.cancel()
+        for task in self._orderbook_tasks:
             task.cancel()
 
         # 等待任务完成取消
-        if self._ws_tasks:
-            await asyncio.gather(*self._ws_tasks, return_exceptions=True)
+        all_tasks = self._ws_tasks + self._orderbook_tasks
+        if all_tasks:
+            await asyncio.gather(*all_tasks, return_exceptions=True)
         self._ws_tasks.clear()
+        self._orderbook_tasks.clear()
 
         # 关闭所有交易所连接
         for ex_name, exchange in self._exchange_instances.items():

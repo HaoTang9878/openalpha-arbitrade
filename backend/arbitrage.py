@@ -23,7 +23,7 @@
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config import Config
 from .models import ArbitrageOpportunity, RiskLevel
@@ -34,8 +34,14 @@ logger = logging.getLogger(__name__)
 RISK_HIGH_THRESHOLD = 0.02    # 价差 > 2% 视为高风险
 RISK_MEDIUM_THRESHOLD = 0.01  # 价差 1%-2% 视为中等风险
 
-# 滑点估算系数（基于订单量的价格影响比例）
-SLIPPAGE_FACTOR = 0.0002      # 0.02% 估算滑点（小单量）
+# 无 L2 订单簿数据时的回退固定滑点（小单量估算）
+FALLBACK_SLIPPAGE = 0.0002    # 0.02%
+
+# 订单簿深度不足时的滑点惩罚
+INSUFFICIENT_DEPTH_SLIPPAGE = 0.01  # 1%
+
+# 动态滑点计算时最多查看的订单簿档位数
+MAX_ORDERBOOK_LEVELS = 10
 
 
 class ArbitrageDetector:
@@ -56,7 +62,9 @@ class ArbitrageDetector:
         self.config = config
 
     def detect(
-        self, prices: Dict[str, Dict[str, Dict[str, Any]]]
+        self,
+        prices: Dict[str, Dict[str, Dict[str, Any]]],
+        orderbooks: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = None,
     ) -> List[ArbitrageOpportunity]:
         """
         从价格快照中检测套利机会
@@ -67,6 +75,10 @@ class ArbitrageDetector:
         Args:
             prices: 价格快照，格式为
                     {exchange: {symbol: {bid, ask, last, volume, timestamp}}}
+            orderbooks: L2 订单簿缓存，格式为
+                        {exchange: {symbol: {"bids": [[price, qty],...],
+                                              "asks": [[price, qty],...]}}}
+                        用于动态滑点计算，无数据时回退到固定滑点
 
         Returns:
             套利机会列表，按净利润率降序排列，最多返回 top_n 条
@@ -83,7 +95,8 @@ class ArbitrageDetector:
         # 遍历每个交易对，寻找最佳套利机会
         for symbol in self.config.model.symbols:
             opportunity = self._detect_symbol_opportunity(
-                symbol, prices, min_profit, order_amount, current_ts
+                symbol, prices, orderbooks,
+                min_profit, order_amount, current_ts,
             )
             if opportunity:
                 opportunities.append(opportunity)
@@ -101,10 +114,70 @@ class ArbitrageDetector:
 
         return result
 
+    def _calculate_effective_price(
+        self,
+        orderbook: Optional[Dict[str, Any]],
+        side: str,
+        amount: float,
+    ) -> Tuple[Optional[float], float]:
+        """
+        基于 L2 订单簿计算实际成交价和滑点
+
+        模拟吃单（taker）行为：按订单簿深度逐档成交，直到满足下单量。
+        实际成交价 = 加权平均成交价，滑点 = 相对最优价的偏离比例。
+
+        Args:
+            orderbook: {"bids": [[price, qty],...], "asks": [[price, qty],...]}
+            side: "buy" 或 "sell"
+                - "buy" 吃 ask 盘（卖方挂单）
+                - "sell" 吃 bid 盘（买方挂单）
+            amount: 下单数量（基础货币，如 BTC 数量）
+
+        Returns:
+            (effective_price, slippage_percent)
+            - 无订单簿数据时返回 (None, FALLBACK_SLIPPAGE) 回退到固定滑点
+            - 订单簿深度不足时返回 (最差档价, INSUFFICIENT_DEPTH_SLIPPAGE)
+        """
+        if not orderbook:
+            return None, FALLBACK_SLIPPAGE  # 回退：固定 0.02%
+
+        if side == "buy":
+            levels = orderbook.get("asks", [])
+        else:
+            levels = orderbook.get("bids", [])
+
+        if not levels:
+            return None, FALLBACK_SLIPPAGE
+
+        # 模拟吃单：按订单簿深度逐档成交
+        remaining = amount
+        total_cost = 0.0
+        best_price = levels[0][0]
+
+        for price, qty in levels[:MAX_ORDERBOOK_LEVELS]:  # 最多看 10 档
+            if remaining <= 0:
+                break
+            fill = min(remaining, qty)
+            total_cost += fill * price
+            remaining -= fill
+
+        if remaining > 0:
+            # 订单簿深度不足，无法完全成交，返回悲观值
+            return levels[-1][0], INSUFFICIENT_DEPTH_SLIPPAGE  # 1% 滑点惩罚
+
+        effective_price = total_cost / amount
+        if side == "buy":
+            slippage = (effective_price - best_price) / best_price
+        else:
+            slippage = (best_price - effective_price) / best_price
+
+        return effective_price, slippage
+
     def _detect_symbol_opportunity(
         self,
         symbol: str,
         prices: Dict[str, Dict[str, Dict[str, Any]]],
+        orderbooks: Optional[Dict[str, Dict[str, Dict[str, Any]]]],
         min_profit: float,
         order_amount: float,
         timestamp: int,
@@ -113,11 +186,13 @@ class ArbitrageDetector:
         检测单个交易对的最佳套利机会
 
         在所有交易所中找出 ask 最低（买入最优）和 bid 最高（卖出最优）的交易所，
-        计算价差和净利润率。
+        计算价差和净利润率。优先使用 L2 订单簿计算实际成交价和动态滑点，
+        无 L2 数据时回退到 ticker top-1 价 + 固定滑点。
 
         Args:
             symbol: 交易对
             prices: 完整价格快照
+            orderbooks: L2 订单簿缓存（可为 None）
             min_profit: 最小净利润率阈值
             order_amount: 下单量
             timestamp: 当前时间戳
@@ -157,17 +232,55 @@ class ArbitrageDetector:
         buy_exchange, buy_price = best_buy
         sell_exchange, sell_price = best_sell
 
-        # 计算原始价差百分比
+        # 计算原始价差百分比（基于 ticker top-1 价）
         spread_percent = (sell_price - buy_price) / buy_price
 
-        # 计算净利润率（扣除双边手续费和估算滑点）
+        # 计算双边手续费
         buy_fee = self.config.get_exchange_fee(buy_exchange)
         sell_fee = self.config.get_exchange_fee(sell_exchange)
         total_fee = buy_fee + sell_fee
-        net_profit_rate = spread_percent - total_fee - SLIPPAGE_FACTOR
 
-        # 过滤不满足最小利润率的机会
-        if net_profit_rate < min_profit:
+        # 优先使用 L2 订单簿计算实际成交价和动态滑点
+        buy_ob = (
+            orderbooks.get(buy_exchange, {}).get(symbol)
+            if orderbooks else None
+        )
+        sell_ob = (
+            orderbooks.get(sell_exchange, {}).get(symbol)
+            if orderbooks else None
+        )
+
+        eff_buy_price, buy_slippage = self._calculate_effective_price(
+            buy_ob, "buy", order_amount
+        )
+        eff_sell_price, sell_slippage = self._calculate_effective_price(
+            sell_ob, "sell", order_amount
+        )
+
+        if eff_buy_price is not None and eff_sell_price is not None:
+            # 有 L2 数据：用实际成交价计算净利润率（滑点已体现在成交价中）
+            actual_spread = (eff_sell_price - eff_buy_price) / eff_buy_price
+            net_profit_rate = actual_spread - total_fee
+            logger.debug(
+                "%s L2 成交价: 买入=%.4f(滑点=%.4f%%) 卖出=%.4f(滑点=%.4f%%) "
+                "实际价差=%.4f%%",
+                symbol, eff_buy_price, buy_slippage * 100,
+                eff_sell_price, sell_slippage * 100,
+                actual_spread * 100,
+            )
+        else:
+            # 无 L2 数据：回退到 ticker top-1 价 + 固定滑点
+            net_profit_rate = (
+                spread_percent - total_fee - FALLBACK_SLIPPAGE
+            )
+            logger.debug(
+                "%s 无 L2 数据，回退固定滑点: 价差=%.4f%% 净利润率=%.4f%%",
+                symbol, spread_percent * 100, net_profit_rate * 100,
+            )
+
+        # 安全护栏：净利润率必须为正，即使配置允许负值也拒绝
+        HARD_MIN_PROFIT = 0.0  # 硬性下限：0%（不允许亏钱）
+        if net_profit_rate < max(min_profit, HARD_MIN_PROFIT):
             return None
 
         # 计算预计净利润（以 USDT 计）

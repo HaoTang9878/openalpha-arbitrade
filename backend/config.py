@@ -50,7 +50,7 @@ DEFAULT_SYMBOLS: List[str] = [
 
 # 默认配置参数
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "min_profitability": 0.0005,
+    "min_profitability": 0.001,  # 0.1% — 必须为正，覆盖手续费波动
     "order_amount": 0.01,
     "scan_interval": 3,
     "max_order_age": 180,

@@ -46,6 +46,7 @@ class TradeExecutor:
         self,
         config: Config,
         api_keys: Optional[Dict[str, Dict[str, str]]] = None,
+        database: Optional[Any] = None,
     ) -> None:
         """
         初始化交易执行器
@@ -53,11 +54,14 @@ class TradeExecutor:
         Args:
             config: 系统配置管理器
             api_keys: 各交易所的 API 密钥字典
+            database: 可选的 SQLite 持久化层实例（backend.database.Database），
+                      传入后交易历史将自动持久化并优先从数据库查询
         """
         self.config = config
         self.api_keys = api_keys or {}
+        self.database = database
 
-        # 交易历史记录
+        # 交易历史记录（内存缓存，数据库可用时仅作为回退）
         self.trade_history: List[TradeResult] = []
 
         # 各交易所的 CCXT 实例（延迟初始化）
@@ -181,6 +185,8 @@ class TradeExecutor:
         )
 
         self.trade_history.append(result)
+        if self.database:
+            self.database.save_trade(result)
         logger.info(
             "模拟交易完成: %s 利润=%.4f USDT (净利润率=%.4f%%)",
             opportunity.symbol, profit, opportunity.net_profit_rate * 100,
@@ -232,6 +238,8 @@ class TradeExecutor:
                 timestamp=timestamp,
             )
             self.trade_history.append(result)
+            if self.database:
+                self.database.save_trade(result)
             return result
 
         # 同时提交买入和卖出限价单
@@ -272,6 +280,8 @@ class TradeExecutor:
                 timestamp=timestamp,
             )
             self.trade_history.append(result)
+            if self.database:
+                self.database.save_trade(result)
             return result
 
         # 等待订单成交
@@ -315,6 +325,8 @@ class TradeExecutor:
         )
 
         self.trade_history.append(result)
+        if self.database:
+            self.database.save_trade(result)
         logger.info("实盘交易完成: %s 利润=%.4f USDT 状态=%s",
                      opportunity.symbol, profit, final_status.value)
         return result
@@ -600,12 +612,18 @@ class TradeExecutor:
         """
         获取交易历史记录
 
+        优先从数据库查询（持久化层），数据库不可用时回退到内存缓存。
+        数据库返回的字典 key 与 TradeResult 字段名一致，paper_trade 已转回 bool。
+
         Args:
             limit: 返回的最大记录数
 
         Returns:
             交易结果列表（按时间倒序）
         """
+        if self.database:
+            rows = self.database.get_trades(limit)
+            return [TradeResult(**row) for row in rows]
         return self.trade_history[-limit:][::-1]
 
     async def close(self) -> None:

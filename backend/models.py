@@ -113,7 +113,7 @@ class SystemConfig(BaseModel):
     """
     exchanges: List[str] = Field(default_factory=list, description="启用的交易所列表")
     symbols: List[str] = Field(default_factory=list, description="监控的交易对列表")
-    min_profitability: float = Field(0.0005, description="最小净利润率（0.0005 = 0.05%）")
+    min_profitability: float = Field(0.001, description="最小净利润率（0.001 = 0.1%，必须为正）")
     order_amount: float = Field(0.01, description="单笔下单量（基础货币）")
     scan_interval: int = Field(10, description="扫描间隔（秒）")
     max_order_age: int = Field(180, description="订单超时时间（秒）")
