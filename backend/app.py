@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from backend.auth import add_auth_middleware  # 鉴权中间件
 
 from .arbitrage import ArbitrageDetector
 from .config import Config, SUPPORTED_EXCHANGES
@@ -339,6 +340,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# ---- 鉴权中间件(写/执行操作需 Bearer token)----
+add_auth_middleware(app)
 
 # 挂载静态文件目录（前端）
 frontend_path = Path(__file__).parent.parent / "frontend"
