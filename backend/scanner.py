@@ -481,6 +481,20 @@ class WebSocketScanner:
                     },
                 }
 
+                # okx 专用：禁用 L2 订单簿 checksum 校验。
+                # ccxt.pro okx 的 handle_order_book_message 在 market 未加载完成
+                # 或 instId 不在 markets 中时，safe_symbol 返回 None，随后
+                # orderbook_checksum_message(None) 执行 `None + '  = False'`
+                # 抛出 TypeError: NoneType + str。该异常发生在 ccxt 内部
+                # message handler 的 Future 中，无法被外层 try/except 捕获，
+                # 导致 `Future exception was never retrieved` 刷屏。
+                # 禁用 checksum 后 ccxt 不再调用 orderbook_checksum_message，
+                # 从根源上消除该 TypeError。
+                if ex_name == "okx":
+                    exchange_config["options"]["watchOrderBook"] = {
+                        "checksum": False,
+                    }
+
                 # 注入 API 密钥（如有）
                 if self.config and ex_name in self.config.api_keys:
                     exchange_config.update(self.config.api_keys[ex_name])
