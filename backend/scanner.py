@@ -515,7 +515,11 @@ class WebSocketScanner:
 
         # 为非黑名单交易所启动 L2 订单簿监听（仅前 5 个交易对，控制连接数）
         # watch_order_book 每次只能订阅一个 symbol，仅对主流币订阅以避免过多连接
-        ob_symbols = self.symbols[:5]
+        # 防御性过滤：剔除 None / 空字符串 / 非字符串 symbol，避免 ccxt 内部
+        # `symbol + '  = False'` 抛出 TypeError: NoneType + str
+        ob_symbols = [
+            s for s in self.symbols[:5] if s and isinstance(s, str)
+        ]
         if ob_symbols:
             for ex_name in self._exchange_instances:
                 if ex_name in WS_BLACKLIST:
@@ -546,12 +550,33 @@ class WebSocketScanner:
         if exchange is None:
             return
 
+        # 防御性过滤：剔除 None / 空字符串 / 非字符串的 symbol，
+        # 避免传递给 _watch_single_orderbook 后触发 ccxt 内部
+        # `symbol + '  = False'` 的 TypeError: NoneType + str
+        valid_symbols = [
+            s for s in symbols if s and isinstance(s, str)
+        ]
+        if len(valid_symbols) < len(symbols):
+            skipped = [
+                repr(s) for s in symbols if not (s and isinstance(s, str))
+            ]
+            logger.warning(
+                "%s 订单簿监听过滤掉无效 symbol: %s",
+                exchange_name, skipped,
+            )
+
+        if not valid_symbols:
+            logger.warning(
+                "%s 订单簿监听无有效 symbol，跳过启动", exchange_name,
+            )
+            return
+
         # 为每个 symbol 启动独立的订单簿监听任务
         ob_tasks = [
             asyncio.create_task(
                 self._watch_single_orderbook(exchange_name, symbol)
             )
-            for symbol in symbols
+            for symbol in valid_symbols
         ]
 
         try:
@@ -572,6 +597,15 @@ class WebSocketScanner:
             exchange_name: 交易所名称
             symbol: 交易对
         """
+        # 防御性检查：symbol 为 None 时直接退出，避免后续日志拼接和
+        # ccxt 内部 `symbol + '  = False'` 抛出 TypeError: NoneType + str
+        if not symbol or not isinstance(symbol, str):
+            logger.warning(
+                "%s 订单簿监听收到无效 symbol（None 或非字符串），跳过该交易对",
+                exchange_name,
+            )
+            return
+
         exchange = self._exchange_instances.get(exchange_name)
         if exchange is None:
             return
@@ -583,10 +617,23 @@ class WebSocketScanner:
         while True:
             try:
                 orderbook = await exchange.watch_order_book(symbol)
+
+                # 防御性检查：orderbook 为 None 或缺少 bids/asks 时跳过缓存
+                # （ccxt 某些异常路径可能返回不完整数据）
+                if not orderbook or not isinstance(orderbook, dict):
+                    await asyncio.sleep(WS_RECONNECT_DELAY)
+                    continue
+
+                bids = orderbook.get("bids") or []
+                asks = orderbook.get("asks") or []
+                if not bids or not asks:
+                    await asyncio.sleep(WS_RECONNECT_DELAY)
+                    continue
+
                 # 只缓存前 10 档买卖盘，控制内存占用
                 self.orderbook_cache[exchange_name][symbol] = {
-                    "bids": orderbook.get("bids", [])[:10],
-                    "asks": orderbook.get("asks", [])[:10],
+                    "bids": bids[:10],
+                    "asks": asks[:10],
                     "timestamp": orderbook.get(
                         "timestamp", int(time.time() * 1000)
                     ),
@@ -596,6 +643,24 @@ class WebSocketScanner:
                     "%s 的 %s 订单簿监听已停止", exchange_name, symbol
                 )
                 raise
+            except TypeError as e:
+                # 单独捕获 TypeError：ccxt.pro okx 内部 orderbook_checksum_message
+                # 在 symbol 为 None 时会执行 `symbol + '  = False'` 抛出
+                # TypeError: NoneType + str。这是 ccxt 库的已知 bug，
+                # 不计入 WS 失败计数（避免误降级 REST），仅去重告警后重试。
+                error_key = f"ob_typeerr:{exchange_name}:{symbol}:{str(e)[:50]}"
+                now = time.time()
+                if not hasattr(self, "_last_warn_time"):
+                    self._last_warn_time = {}
+                last_warn = self._last_warn_time.get(error_key, 0)
+                if now - last_warn > 300:  # 5 分钟
+                    logger.warning(
+                        "%s 监听 %s 订单簿遇到 ccxt 内部 TypeError（已知 bug，已忽略）: %s",
+                        exchange_name, symbol, e,
+                    )
+                    self._last_warn_time[error_key] = now
+                # 失败后短暂等待再重试，不影响主流程
+                await asyncio.sleep(WS_RECONNECT_DELAY)
             except Exception as e:
                 # 去重告警：同一错误 5 分钟内只告警一次，避免刷屏
                 error_key = f"ob:{exchange_name}:{symbol}:{str(e)[:50]}"
@@ -702,6 +767,26 @@ class WebSocketScanner:
         except asyncio.CancelledError:
             logger.info("%s 的监听已停止", exchange_name)
             raise
+
+        except TypeError as e:
+            # 单独捕获 TypeError：ccxt.pro okx 共享单一 WS 连接，
+            # orderbook 消息处理在 symbol 为 None 时会执行
+            # `symbol + '  = False'` 抛出 TypeError: NoneType + str，
+            # 该异常会传播到 watch_tickers 的 Future。这是 ccxt 库的已知 bug，
+            # 不应计入 WS 失败计数（避免误降级 REST），仅去重告警后重试。
+            error_key = f"ws_typeerr:{exchange_name}:{str(e)[:50]}"
+            now = time.time()
+            if not hasattr(self, "_last_warn_time"):
+                self._last_warn_time = {}
+            last_warn = self._last_warn_time.get(error_key, 0)
+            if now - last_warn > 300:  # 5 分钟
+                logger.warning(
+                    "%s WebSocket 遇到 ccxt 内部 TypeError（已知 bug，已忽略）: %s",
+                    exchange_name, e,
+                )
+                self._last_warn_time[error_key] = now
+            # 不增加 _ws_failures / error_counts，避免误降级 REST
+            await asyncio.sleep(WS_RECONNECT_DELAY)
 
         except Exception as e:
             self._ws_failures[exchange_name] = (
