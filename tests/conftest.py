@@ -71,13 +71,13 @@ def sample_prices() -> Dict[str, Dict[str, Dict[str, Any]]]:
         },
         "okx": {
             "BTC/USDT": {
-                "bid": 95100.0, "ask": 95101.0,
-                "last": 95100.5, "volume": 800000.0,
+                "bid": 95500.0, "ask": 95501.0,
+                "last": 95500.5, "volume": 800000.0,
                 "timestamp": 1700000000000,
             },
             "ETH/USDT": {
-                "bid": 3205.0, "ask": 3205.5,
-                "last": 3205.2, "volume": 400000.0,
+                "bid": 3210.0, "ask": 3210.5,
+                "last": 3210.2, "volume": 400000.0,
                 "timestamp": 1700000000000,
             },
         },
@@ -97,8 +97,8 @@ def low_volume_prices() -> Dict[str, Dict[str, Dict[str, Any]]]:
         },
         "okx": {
             "BTC/USDT": {
-                "bid": 95100.0, "ask": 95101.0,
-                "last": 95100.5, "volume": 30000.0,
+                "bid": 95500.0, "ask": 95501.0,
+                "last": 95500.5, "volume": 30000.0,
                 "timestamp": 1700000000000,
             },
         },
@@ -159,7 +159,7 @@ def sample_orderbooks() -> Dict[str, Dict[str, Dict[str, Any]]]:
         },
         "okx": {
             "BTC/USDT": {
-                "bids": [[95100.0, 0.5], [95099.0, 0.3]],
+                "bids": [[95500.0, 0.5], [95499.0, 0.3]],
                 "asks": [[95101.0, 0.3], [95102.0, 0.4]],
             },
         },

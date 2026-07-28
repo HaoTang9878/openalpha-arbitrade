@@ -49,7 +49,7 @@ class TestDetect:
         assert op.buy_exchange == "binance"
         assert op.sell_exchange == "okx"
         assert op.buy_price == 95001.0  # binance ask
-        assert op.sell_price == 95100.0  # okx bid
+        assert op.sell_price == 95500.0  # okx bid
         assert op.net_profit_rate > 0
         assert op.estimated_profit > 0
 

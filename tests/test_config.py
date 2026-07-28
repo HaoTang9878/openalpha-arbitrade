@@ -49,7 +49,7 @@ class TestConfigInit:
         """默认监控交易对列表正确"""
         config = Config()
         assert config.model.symbols == DEFAULT_SYMBOLS
-        assert len(config.model.symbols) == 20
+        assert len(config.model.symbols) == 40
 
     def test_default_exchange_fees_initialized(self):
         """所有交易所手续费率初始化为默认费率"""
