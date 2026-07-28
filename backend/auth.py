@@ -30,9 +30,21 @@ logger = logging.getLogger(__name__)
 # 只读放行路径(精确匹配,仅 GET)
 _PUBLIC_GET_PATHS: frozenset[str] = frozenset({
     "/", "/api/status", "/api/prices", "/api/opportunities",
-    "/api/trades", "/api/exchanges", "/api/balances",
-    "/api/risk/status", "/api/config",
+    "/api/opportunities/stats", "/api/trades", "/api/exchanges",
+    "/api/balances", "/api/risk/status", "/api/config",
+    "/api/daily-report", "/api/heatmap",
+    "/api/symbols", "/api/symbols/categories",
     "/docs", "/openapi.json", "/redoc",
+    # React SPA 前端路由页面（返回 index.html）
+    "/bots", "/backtest", "/heatmap", "/reports", "/settings",
+    # 策略管理（GET 查询公开，写操作需鉴权）
+    "/api/strategies",
+    # 回测引擎（GET 查询公开，写操作需鉴权）
+    "/api/backtest/klines",
+    # 用户认证（注册/登录/刷新公开，me 需鉴权但自行处理）
+    "/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/me",
+    # AI 策略推荐（公开查询）
+    "/api/ai/recommend",
 })
 
 # 写/执行路径(必须鉴权)
@@ -54,12 +66,24 @@ def _extract_token(request: Request) -> str | None:
     return request.query_params.get("token")
 
 
+# 认证端点（POST 也放行，无需 token）
+_PUBLIC_AUTH_PATHS: frozenset[str] = frozenset({
+    "/api/auth/register", "/api/auth/login", "/api/auth/refresh",
+})
+
+
 def _is_public(request: Request) -> bool:
-    """判断是否只读公开端点。"""
+    """判断是否公开端点（无需鉴权）。"""
+    # GET 只读端点放行
     if request.method == "GET" and request.url.path in _PUBLIC_GET_PATHS:
         return True
-    # 静态资源放行
+    # 认证端点（POST）放行
+    if request.url.path in _PUBLIC_AUTH_PATHS:
+        return True
+    # 静态资源放行（React SPA 构建产物 + 旧版前端）
     if request.url.path.startswith("/static/"):
+        return True
+    if request.url.path.startswith("/assets/"):
         return True
     return False
 

@@ -30,18 +30,32 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from backend.auth import add_auth_middleware  # 鉴权中间件
 
 from .arbitrage import ArbitrageDetector
-from .config import Config, SUPPORTED_EXCHANGES
+from .config import (
+    Config,
+    SUPPORTED_EXCHANGES,
+    SYMBOL_CATEGORIES,
+    get_order_amount_for_price,
+    get_symbol_category,
+)
 from .database import Database
 from .executor import TradeExecutor
 from .models import ArbitrageOpportunity, OrderStatus, TradeResult
+from .notifier import Notifier
 from .risk_manager import RiskManager
 from .scanner import PriceScanner, WebSocketScanner
+from .backtest import HistoryCollector, BacktestEngine
+from .user_auth import UserAuth
+from .ai_advisor import AIAdvisor
+from .strategies import (
+    StrategyRegistry, StrategyOrchestrator,
+    GridStrategy, DcaStrategy, TriangularStrategy,
+)
 
 # ----------------------------------------------------------------------------
 # 日志配置
@@ -88,6 +102,7 @@ detector: Optional[ArbitrageDetector] = None
 executor: Optional[TradeExecutor] = None
 risk_manager: Optional[RiskManager] = None
 database: Optional[Database] = None
+notifier: Optional[Notifier] = None
 
 # 运行状态标志
 scanner_running = False
@@ -100,6 +115,20 @@ latest_opportunities: List[ArbitrageOpportunity] = []
 # 后台任务引用
 scanner_task: Optional[asyncio.Task] = None
 arbitrage_task: Optional[asyncio.Task] = None
+
+# AI 策略推荐器
+ai_advisor: Optional[AIAdvisor] = None
+
+# 用户认证
+user_auth: Optional[UserAuth] = None
+
+# 回测引擎
+history_collector: Optional[HistoryCollector] = None
+backtest_engine: Optional[BacktestEngine] = None
+
+# 策略注册中心与调度器
+strategy_registry: Optional[StrategyRegistry] = None
+strategy_orchestrator: Optional[StrategyOrchestrator] = None
 
 # WebSocket 连接管理
 ws_connections: Set[WebSocket] = set()
@@ -253,8 +282,23 @@ async def scanner_loop() -> None:
                                 "timestamp": int(time.time() * 1000),
                             })
 
+                            # Telegram 告警：只通知前 3 个最佳机会
+                            # （Notifier 内部会做净利润率阈值和频率限制过滤）
+                            if notifier:
+                                for op in opportunities[:3]:
+                                    try:
+                                        notifier.notify_opportunity(op)
+                                    except Exception as ne:  # noqa: BLE001
+                                        logger.debug("机会告警通知失败: %s", ne)
+
         except Exception as e:
             logger.error("价格扫描循环异常: %s", e, exc_info=True)
+            # 系统错误告警（通知失败不影响主流程）
+            if notifier:
+                try:
+                    notifier.notify_error("价格扫描循环异常: %s" % e)
+                except Exception as ne:  # noqa: BLE001
+                    logger.debug("错误告警通知失败: %s", ne)
 
         # 等待下一次扫描
         await asyncio.sleep(config.model.scan_interval)
@@ -302,8 +346,42 @@ async def arbitrage_loop() -> None:
                         "timestamp": int(time.time() * 1000),
                     })
 
+                    # Telegram 告警：交易执行结果通知
+                    if notifier:
+                        try:
+                            status = result.status.value if hasattr(
+                                result.status, "value"
+                            ) else str(result.status)
+                            notifier.notify_status(
+                                "套利交易执行完成\n"
+                                "交易对: %s\n"
+                                "买入: %s @ %.4f\n"
+                                "卖出: %s @ %.4f\n"
+                                "数量: %.4f\n"
+                                "利润: %.4f USDT\n"
+                                "状态: %s"
+                                % (
+                                    result.symbol,
+                                    result.buy_exchange,
+                                    result.buy_price,
+                                    result.sell_exchange,
+                                    result.sell_price,
+                                    result.amount,
+                                    result.profit,
+                                    status,
+                                )
+                            )
+                        except Exception as ne:  # noqa: BLE001
+                            logger.debug("交易结果通知失败: %s", ne)
+
         except Exception as e:
             logger.error("自动套利循环异常: %s", e, exc_info=True)
+            # 系统错误告警（通知失败不影响主流程）
+            if notifier:
+                try:
+                    notifier.notify_error("自动套利循环异常: %s" % e)
+                except Exception as ne:  # noqa: BLE001
+                    logger.debug("错误告警通知失败: %s", ne)
 
         # 等待下一轮检查（使用较短的间隔以快速响应机会）
         await asyncio.sleep(config.model.scan_interval)
@@ -317,8 +395,12 @@ async def arbitrage_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理，负责初始化和清理资源"""
-    global scanner, detector, executor, risk_manager, database
+    global scanner, detector, executor, risk_manager, database, notifier
     global scanner_running, scanner_task
+    global strategy_registry, strategy_orchestrator
+    global history_collector, backtest_engine
+    global user_auth
+    global ai_advisor
 
     logger.info("OpenAlpha 套利系统启动中...")
 
@@ -326,10 +408,33 @@ async def lifespan(app: FastAPI):
     db_path = str(Path(__file__).parent.parent / "data" / "arbitrage.db")
     database = Database(db_path)
 
+    # 初始化 Telegram 告警通知器（未配置时静默跳过，不影响主流程）
+    notifier = Notifier()
+
     # 初始化套利检测器、交易执行器和风控管理器
     detector = ArbitrageDetector(config)
     executor = TradeExecutor(config, config.api_keys, database=database)
-    risk_manager = RiskManager(config)
+    risk_manager = RiskManager(config, notifier=notifier)
+
+    # 初始化策略注册中心与调度器
+    strategy_registry = StrategyRegistry()
+    strategy_orchestrator = StrategyOrchestrator(strategy_registry)
+    # 注入价格数据提供者（使用 latest_prices 全局变量）
+    strategy_orchestrator.set_prices_provider(lambda: latest_prices)
+    logger.info("策略注册中心已初始化")
+
+    # 初始化回测引擎
+    history_collector = HistoryCollector(database)
+    backtest_engine = BacktestEngine(history_collector)
+    logger.info("回测引擎已初始化")
+
+    # 初始化用户认证
+    user_auth = UserAuth(database)
+    logger.info("用户认证已初始化")
+
+    # 初始化 AI 策略推荐器
+    ai_advisor = AIAdvisor()
+    logger.info("AI 策略推荐器已初始化")
 
     # 优先使用 WebSocket 实时扫描器，失败则回退到 REST 轮询
     try:
@@ -353,6 +458,23 @@ async def lifespan(app: FastAPI):
     scanner_running = True
     scanner_task = asyncio.create_task(scanner_loop())
     logger.info("价格扫描已自动启动")
+
+    # 系统启动状态通知
+    if notifier:
+        try:
+            notifier.notify_status(
+                "OpenAlpha 套利系统已启动\n"
+                "交易所: %s\n"
+                "交易对: %d 个\n"
+                "模拟交易: %s"
+                % (
+                    ", ".join(config.model.exchanges),
+                    len(config.model.symbols),
+                    "是" if config.model.paper_trade else "否",
+                )
+            )
+        except Exception as ne:  # noqa: BLE001
+            logger.debug("启动状态通知失败: %s", ne)
 
     yield
 
@@ -390,10 +512,16 @@ app = FastAPI(
 # ---- 鉴权中间件(写/执行操作需 Bearer token)----
 add_auth_middleware(app)
 
-# 挂载静态文件目录（前端）
-frontend_path = Path(__file__).parent.parent / "frontend"
-if frontend_path.exists():
-    app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
+# 挂载前端静态文件目录
+# 优先使用 React 构建产物（frontend-react/dist），回退到旧版 HTML
+frontend_react_path = Path(__file__).parent.parent / "frontend-react" / "dist"
+frontend_legacy_path = Path(__file__).parent.parent / "frontend"
+
+if frontend_react_path.exists():
+    # React SPA 模式：挂载 dist 目录为静态文件
+    app.mount("/assets", StaticFiles(directory=str(frontend_react_path / "assets")), name="assets")
+elif frontend_legacy_path.exists():
+    app.mount("/static", StaticFiles(directory=str(frontend_legacy_path)), name="static")
 
 
 # ----------------------------------------------------------------------------
@@ -401,10 +529,60 @@ if frontend_path.exists():
 # ----------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
-    """返回前端监控仪表盘页面"""
-    index_file = frontend_path / "index.html"
-    if index_file.exists():
-        return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
+    """返回前端监控仪表盘页面（优先 React SPA，回退旧版 HTML）"""
+    # React SPA 入口
+    react_index = frontend_react_path / "index.html"
+    if react_index.exists():
+        return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
+    # 旧版 HTML 回退
+    legacy_index = frontend_legacy_path / "index.html"
+    if legacy_index.exists():
+        return HTMLResponse(content=legacy_index.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>前端文件未找到</h1>", status_code=404)
+
+
+@app.get("/bots", response_class=HTMLResponse)
+async def bots_page() -> HTMLResponse:
+    """React SPA 路由：策略机器人页面"""
+    react_index = frontend_react_path / "index.html"
+    if react_index.exists():
+        return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>前端文件未找到</h1>", status_code=404)
+
+
+@app.get("/backtest", response_class=HTMLResponse)
+async def backtest_page() -> HTMLResponse:
+    """React SPA 路由：回测页面"""
+    react_index = frontend_react_path / "index.html"
+    if react_index.exists():
+        return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>前端文件未找到</h1>", status_code=404)
+
+
+@app.get("/heatmap", response_class=HTMLResponse)
+async def heatmap_page() -> HTMLResponse:
+    """React SPA 路由：热力图页面"""
+    react_index = frontend_react_path / "index.html"
+    if react_index.exists():
+        return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>前端文件未找到</h1>", status_code=404)
+
+
+@app.get("/reports", response_class=HTMLResponse)
+async def reports_page() -> HTMLResponse:
+    """React SPA 路由：每日报告页面"""
+    react_index = frontend_react_path / "index.html"
+    if react_index.exists():
+        return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>前端文件未找到</h1>", status_code=404)
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page() -> HTMLResponse:
+    """React SPA 路由：设置页面"""
+    react_index = frontend_react_path / "index.html"
+    if react_index.exists():
+        return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
     return HTMLResponse(content="<h1>前端文件未找到</h1>", status_code=404)
 
 
@@ -791,6 +969,407 @@ async def resume_risk() -> Dict[str, Any]:
         return {"error": "风控管理器未初始化"}
     risk_manager.resume()
     return {"status": "ok", "message": "风控已恢复"}
+
+
+# ----------------------------------------------------------------------------
+# 每日报告 / 机会统计 / 热力图 / 币种管理 端点
+# ----------------------------------------------------------------------------
+
+@app.get("/api/daily-report")
+async def get_daily_report(date: Optional[str] = None) -> Dict[str, Any]:
+    """获取每日报告（汇总指定日期的机会检测与交易执行情况）"""
+    if not database:
+        return {"error": "数据库未初始化"}
+    return database.get_daily_report(date)
+
+
+@app.get("/api/opportunities/stats")
+async def get_opportunity_stats() -> Dict[str, Any]:
+    """获取当前套利机会的聚合统计（风险/交易对/交易所对/价差分布）"""
+    opps = latest_opportunities
+    if not opps:
+        return {"total": 0, "by_risk": {}, "by_symbol": {},
+                "by_exchange_pair": {}, "spread_distribution": {},
+                "avg_net_profit_rate": 0.0, "max_net_profit_rate": 0.0}
+
+    by_risk: Dict[str, int] = {}
+    by_symbol: Dict[str, int] = {}
+    by_pair: Dict[str, int] = {}
+    spread_dist = {"<0.1%": 0, "0.1-0.5%": 0, "0.5-1%": 0, ">1%": 0}
+    rates = []
+
+    for op in opps:
+        risk = op.risk_level.value if hasattr(op.risk_level, "value") else str(op.risk_level)
+        by_risk[risk] = by_risk.get(risk, 0) + 1
+        by_symbol[op.symbol] = by_symbol.get(op.symbol, 0) + 1
+        pair_key = "%s→%s" % (op.buy_exchange, op.sell_exchange)
+        by_pair[pair_key] = by_pair.get(pair_key, 0) + 1
+        sp = op.spread_percent * 100
+        if sp < 0.1:
+            spread_dist["<0.1%"] += 1
+        elif sp < 0.5:
+            spread_dist["0.1-0.5%"] += 1
+        elif sp < 1:
+            spread_dist["0.5-1%"] += 1
+        else:
+            spread_dist[">1%"] += 1
+        rates.append(op.net_profit_rate)
+
+    avg_rate = sum(rates) / len(rates) if rates else 0.0
+    max_rate = max(rates) if rates else 0.0
+    return {"total": len(opps), "by_risk": by_risk, "by_symbol": by_symbol,
+            "by_exchange_pair": by_pair, "spread_distribution": spread_dist,
+            "avg_net_profit_rate": round(avg_rate, 6),
+            "max_net_profit_rate": round(max_rate, 6)}
+
+
+@app.get("/api/heatmap")
+async def get_heatmap() -> Dict[str, Any]:
+    """获取价差热力图数据（交易对 × 交易所对矩阵）"""
+    if not latest_prices:
+        return {"symbols": [], "exchange_pairs": [], "cells": []}
+
+    exchanges = sorted(latest_prices.keys())
+    exchange_pairs = ["%s→%s" % (b, s) for b in exchanges for s in exchanges if b != s]
+    all_symbols = set()
+    for ex_prices in latest_prices.values():
+        all_symbols.update(ex_prices.keys())
+    symbols = sorted(all_symbols)
+
+    cells = []
+    for symbol in symbols:
+        ex_prices = {}
+        for ex in exchanges:
+            ticker = latest_prices.get(ex, {}).get(symbol)
+            if ticker and ticker.get("ask", 0) > 0 and ticker.get("bid", 0) > 0:
+                ex_prices[ex] = ticker
+        if len(ex_prices) < 2:
+            continue
+        for buy_ex in ex_prices:
+            for sell_ex in ex_prices:
+                if buy_ex == sell_ex:
+                    continue
+                buy_ask = ex_prices[buy_ex]["ask"]
+                sell_bid = ex_prices[sell_ex]["bid"]
+                if buy_ask <= 0:
+                    continue
+                spread = (sell_bid - buy_ask) / buy_ask
+                total_fee = config.get_exchange_fee(buy_ex) + config.get_exchange_fee(sell_ex)
+                cells.append({"symbol": symbol, "buy_exchange": buy_ex,
+                              "sell_exchange": sell_ex, "spread_percent": round(spread, 6),
+                              "buy_price": buy_ask, "sell_price": sell_bid,
+                              "net_profit_rate": round(spread - total_fee, 6)})
+    return {"symbols": symbols, "exchange_pairs": exchange_pairs, "cells": cells}
+
+
+@app.get("/api/symbols")
+async def get_symbols() -> Dict[str, Any]:
+    """获取当前监控的交易对列表及其分类信息"""
+    symbols = config.model.symbols
+    symbol_info = [{"symbol": s, "base": s.split("/")[0] if "/" in s else s,
+                    "category": get_symbol_category(s)} for s in symbols]
+    return {"symbols": symbols, "symbol_info": symbol_info,
+            "categories": SYMBOL_CATEGORIES, "count": len(symbols)}
+
+
+@app.put("/api/symbols")
+async def update_symbols(data: Dict[str, Any]) -> Dict[str, Any]:
+    """更新监控的交易对列表（覆盖或增量增删，修改后重建扫描器）"""
+    old_symbols = config.model.symbols.copy()
+    if "symbols" in data and isinstance(data["symbols"], list):
+        config.model.symbols = [s.strip().upper() for s in data["symbols"] if s.strip()]
+    else:
+        current = set(config.model.symbols)
+        for s in data.get("add", []):
+            s = s.strip().upper()
+            if s and s not in current:
+                current.add(s)
+        for s in data.get("remove", []):
+            current.discard(s.strip().upper())
+        config.model.symbols = sorted(current)
+
+    if config.model.symbols != old_symbols and scanner:
+        try:
+            await scanner.close()
+            scanner.exchanges = config.model.exchanges
+            scanner.symbols = config.model.symbols
+            scanner._init_exchanges()
+            if hasattr(scanner, "start"):
+                await scanner.start()
+            logger.info("交易对列表已更新: %d → %d 个", len(old_symbols), len(config.model.symbols))
+        except Exception as e:
+            logger.error("重建扫描器失败: %s", e, exc_info=True)
+    return {"status": "ok", "symbols": config.model.symbols, "count": len(config.model.symbols)}
+
+
+@app.get("/api/symbols/categories")
+async def get_symbol_categories() -> Dict[str, Any]:
+    """获取币种分类映射表"""
+    return {"categories": SYMBOL_CATEGORIES}
+
+
+# ----------------------------------------------------------------------------
+# 策略管理端点
+# ----------------------------------------------------------------------------
+
+@app.get("/api/strategies")
+async def list_strategies() -> Dict[str, Any]:
+    """获取所有已注册策略的状态"""
+    if not strategy_orchestrator:
+        return {"strategies": [], "orchestrator_running": False}
+    return strategy_orchestrator.get_status()
+
+
+@app.post("/api/strategies/create")
+async def create_strategy(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    创建并注册策略实例
+
+    接收 {type, name, config} 创建指定类型的策略。
+    type: grid / dca / triangular
+    """
+    if not strategy_registry:
+        return {"error": "策略注册中心未初始化"}
+
+    strategy_type = data.get("type", "").strip().lower()
+    name = data.get("name", "").strip()
+    config = data.get("config", {})
+
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "缺少策略名称"})
+    if strategy_registry.get(name):
+        return JSONResponse(status_code=409, content={"error": f"策略 {name} 已存在"})
+
+    # 按类型创建策略
+    strategy_map = {
+        "grid": GridStrategy,
+        "dca": DcaStrategy,
+        "triangular": TriangularStrategy,
+    }
+    strategy_class = strategy_map.get(strategy_type)
+    if not strategy_class:
+        return JSONResponse(status_code=400, content={"error": f"不支持的策略类型: {strategy_type}"})
+
+    try:
+        strategy = strategy_class(name, config)
+        strategy_registry.register(name, strategy)
+        logger.info("已创建策略: %s (%s)", name, strategy_type)
+        return {"status": "ok", "name": name, "type": strategy_type}
+    except Exception as e:
+        logger.error("创建策略失败: %s", e, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/api/strategies/{name}/start")
+async def start_strategy(name: str) -> Dict[str, Any]:
+    """启动指定策略"""
+    if not strategy_registry:
+        return {"error": "策略注册中心未初始化"}
+    strategy = strategy_registry.get(name)
+    if not strategy:
+        return JSONResponse(status_code=404, content={"error": f"策略 {name} 不存在"})
+    await strategy.start()
+    return {"status": "ok", "name": name}
+
+
+@app.post("/api/strategies/{name}/stop")
+async def stop_strategy(name: str) -> Dict[str, Any]:
+    """停止指定策略"""
+    if not strategy_registry:
+        return {"error": "策略注册中心未初始化"}
+    strategy = strategy_registry.get(name)
+    if not strategy:
+        return JSONResponse(status_code=404, content={"error": f"策略 {name} 不存在"})
+    await strategy.stop()
+    return {"status": "ok", "name": name}
+
+
+@app.delete("/api/strategies/{name}")
+async def delete_strategy(name: str) -> Dict[str, Any]:
+    """删除指定策略"""
+    if not strategy_registry:
+        return {"error": "策略注册中心未初始化"}
+    strategy = strategy_registry.unregister(name)
+    if not strategy:
+        return JSONResponse(status_code=404, content={"error": f"策略 {name} 不存在"})
+    await strategy.stop()
+    return {"status": "ok", "name": name}
+
+
+@app.post("/api/strategies/orchestrator/start")
+async def start_orchestrator() -> Dict[str, Any]:
+    """启动策略调度器"""
+    if not strategy_orchestrator:
+        return {"error": "策略调度器未初始化"}
+    await strategy_orchestrator.start()
+    return {"status": "ok"}
+
+
+@app.post("/api/strategies/orchestrator/stop")
+async def stop_orchestrator() -> Dict[str, Any]:
+    """停止策略调度器"""
+    if not strategy_orchestrator:
+        return {"error": "策略调度器未初始化"}
+    await strategy_orchestrator.stop()
+    return {"status": "ok"}
+
+
+# ----------------------------------------------------------------------------
+# 回测引擎端点
+# ----------------------------------------------------------------------------
+
+@app.get("/api/backtest/klines")
+async def get_klines(
+    exchange: str, symbol: str, timeframe: str = "1h", limit: int = 500
+) -> Dict[str, Any]:
+    """查询已存储的 K 线数据"""
+    if not history_collector:
+        return {"error": "回测引擎未初始化"}
+    klines = history_collector.get_klines(exchange, symbol, timeframe, limit)
+    count = history_collector.get_kline_count(exchange, symbol, timeframe)
+    return {"klines": klines, "count": len(klines), "total_stored": count}
+
+
+@app.post("/api/backtest/download")
+async def download_klines(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    下载历史 K 线数据
+
+    接收 {exchange, symbol, timeframe, days} 下载指定天数的历史数据。
+    """
+    if not history_collector:
+        return {"error": "回测引擎未初始化"}
+    exchange = data.get("exchange", "binance")
+    symbol = data.get("symbol", "BTC/USDT")
+    timeframe = data.get("timeframe", "1h")
+    days = int(data.get("days", 30))
+    count = await history_collector.download_klines(exchange, symbol, timeframe, days)
+    return {"status": "ok", "downloaded": count}
+
+
+@app.post("/api/backtest/run")
+async def run_backtest(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    执行回测
+
+    接收 {strategy_type, config, exchange, symbol, timeframe, initial_capital}
+    创建临时策略实例并回测。
+    """
+    if not backtest_engine or not history_collector:
+        return {"error": "回测引擎未初始化"}
+
+    strategy_type = data.get("strategy_type", "grid")
+    config = data.get("config", {})
+    exchange = data.get("exchange", "binance")
+    symbol = data.get("symbol", "BTC/USDT")
+    timeframe = data.get("timeframe", "1h")
+    initial_capital = float(data.get("initial_capital", 10000))
+
+    # 检查是否有足够的 K 线数据
+    kline_count = history_collector.get_kline_count(exchange, symbol, timeframe)
+    if kline_count < 10:
+        return JSONResponse(status_code=400, content={
+            "error": f"K线数据不足（{kline_count}条），请先下载历史数据"
+        })
+
+    # 创建临时策略实例
+    strategy_map = {
+        "grid": GridStrategy,
+        "dca": DcaStrategy,
+        "triangular": TriangularStrategy,
+    }
+    strategy_class = strategy_map.get(strategy_type)
+    if not strategy_class:
+        return JSONResponse(status_code=400, content={
+            "error": f"不支持的策略类型: {strategy_type}"
+        })
+
+    try:
+        strategy = strategy_class(f"backtest_{strategy_type}", config)
+        result = await backtest_engine.run(
+            strategy=strategy,
+            exchange=exchange,
+            symbol=symbol,
+            timeframe=timeframe,
+            initial_capital=initial_capital,
+        )
+        return result.to_dict()
+    except Exception as e:
+        logger.error("回测执行失败: %s", e, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ----------------------------------------------------------------------------
+# 用户认证端点
+# ----------------------------------------------------------------------------
+
+@app.post("/api/auth/register")
+async def register(data: Dict[str, Any]) -> Dict[str, Any]:
+    """用户注册（邮箱 + 密码）"""
+    if not user_auth:
+        return {"error": "用户认证未初始化"}
+    email = data.get("email", "")
+    password = data.get("password", "")
+    return user_auth.register(email, password)
+
+
+@app.post("/api/auth/login")
+async def login(data: Dict[str, Any]) -> Dict[str, Any]:
+    """用户登录（返回 JWT Token）"""
+    if not user_auth:
+        return {"error": "用户认证未初始化"}
+    email = data.get("email", "")
+    password = data.get("password", "")
+    return user_auth.login(email, password)
+
+
+@app.post("/api/auth/refresh")
+async def refresh_token(data: Dict[str, Any]) -> Dict[str, Any]:
+    """刷新 Token"""
+    if not user_auth:
+        return {"error": "用户认证未初始化"}
+    refresh = data.get("refresh_token", "")
+    return user_auth.refresh_token(refresh)
+
+
+@app.get("/api/auth/me")
+async def get_current_user(request: Request) -> Dict[str, Any]:
+    """获取当前登录用户信息"""
+    if not user_auth:
+        return {"error": "用户认证未初始化"}
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return JSONResponse(status_code=401, content={"error": "未登录"})
+    token = auth[7:].strip()
+    payload = user_auth.verify_token(token)
+    if not payload:
+        return JSONResponse(status_code=401, content={"error": "Token 无效或已过期"})
+    return {
+        "user_id": payload.get("user_id"),
+        "email": payload.get("email"),
+        "role": payload.get("role"),
+    }
+
+
+# ----------------------------------------------------------------------------
+# AI 策略推荐端点
+# ----------------------------------------------------------------------------
+
+@app.get("/api/ai/recommend")
+async def ai_recommend(
+    capital: float = 10000, risk_tolerance: str = "medium"
+) -> Dict[str, Any]:
+    """
+    AI 策略推荐
+
+    基于当前市场数据分析，推荐最优策略组合。
+    GET 参数：capital（资金量）、risk_tolerance（风险偏好 low/medium/high）
+    """
+    if not ai_advisor:
+        return {"error": "AI 推荐器未初始化"}
+    if not latest_prices:
+        return {"error": "暂无价格数据，请等待扫描器启动"}
+    return ai_advisor.analyze(latest_prices, capital, risk_tolerance)
 
 
 # ----------------------------------------------------------------------------

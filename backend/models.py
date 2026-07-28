@@ -12,7 +12,7 @@
 """
 
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -115,11 +115,73 @@ class SystemConfig(BaseModel):
     symbols: List[str] = Field(default_factory=list, description="监控的交易对列表")
     min_profitability: float = Field(0.001, description="最小净利润率（0.001 = 0.1%，必须为正）")
     order_amount: float = Field(0.01, description="单笔下单量（基础货币）")
-    scan_interval: int = Field(10, description="扫描间隔（秒）")
-    max_order_age: int = Field(180, description="订单超时时间（秒）")
+    scan_interval: int = Field(3, description="扫描间隔（秒）")
+    max_order_age: int = Field(60, description="订单超时时间（秒）")
     paper_trade: bool = Field(True, description="是否模拟交易")
     fee_rate: float = Field(0.001, description="默认手续费率（0.001 = 0.1%）")
     exchange_fees: Dict[str, float] = Field(
         default_factory=dict, description="各交易所手续费率映射"
     )
-    top_n_opportunities: int = Field(20, description="返回的最大机会数量")
+    top_n_opportunities: int = Field(30, description="返回的最大机会数量")
+
+
+class DailyReport(BaseModel):
+    """
+    每日报告模型
+
+    汇总某一天（UTC+8）的套利机会检测与模拟交易执行情况，
+    用于每日记录与策略复盘。
+    """
+    date: str = Field(..., description="报告日期（YYYY-MM-DD，UTC+8）")
+    total_opportunities: int = Field(0, description="当日检测到的机会总数")
+    unique_symbols: int = Field(0, description="涉及的不同交易对数")
+    unique_exchange_pairs: int = Field(0, description="涉及的不同交易所对数")
+    total_trades: int = Field(0, description="当日模拟交易笔数")
+    total_profit: float = Field(0.0, description="当日累计盈亏（USDT）")
+    win_rate: float = Field(0.0, description="胜率（0-1）")
+    spread_distribution: Dict[str, int] = Field(
+        default_factory=dict, description="价差分布（<0.1%/0.1-0.5%/0.5-1%/>1%）"
+    )
+    top_opportunities: List[Dict[str, Any]] = Field(
+        default_factory=list, description="当日 Top10 最大价差机会"
+    )
+    exchange_pair_frequency: Dict[str, int] = Field(
+        default_factory=dict, description="交易所对出现频次"
+    )
+    symbol_frequency: Dict[str, int] = Field(
+        default_factory=dict, description="交易对出现频次"
+    )
+
+
+class OpportunityStats(BaseModel):
+    """
+    套利机会统计模型
+
+    对当前缓存的机会进行聚合统计，用于前端机会统计面板。
+    """
+    total: int = Field(0, description="当前机会总数")
+    by_risk: Dict[str, int] = Field(default_factory=dict, description="按风险等级分布")
+    by_symbol: Dict[str, int] = Field(default_factory=dict, description="按交易对分布")
+    by_exchange_pair: Dict[str, int] = Field(
+        default_factory=dict, description="按交易所对分布"
+    )
+    spread_distribution: Dict[str, int] = Field(
+        default_factory=dict, description="价差区间分布"
+    )
+    avg_net_profit_rate: float = Field(0.0, description="平均净利润率")
+    max_net_profit_rate: float = Field(0.0, description="最大净利润率")
+
+
+class HeatmapCell(BaseModel):
+    """
+    热力图单元格模型
+
+    表示某个交易对在某对交易所之间的最大价差信息。
+    """
+    symbol: str = Field(..., description="交易对")
+    buy_exchange: str = Field(..., description="买入交易所")
+    sell_exchange: str = Field(..., description="卖出交易所")
+    spread_percent: float = Field(0.0, description="最大价差百分比")
+    buy_price: float = Field(0.0, description="买入价")
+    sell_price: float = Field(0.0, description="卖出价")
+    net_profit_rate: float = Field(0.0, description="净利润率")

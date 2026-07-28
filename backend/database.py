@@ -282,16 +282,20 @@ class Database:
                 logger.error("查询交易总数失败: %s", e, exc_info=True)
                 return 0
 
-    def get_daily_pnl(self) -> float:
+    def get_daily_pnl(self, date_str: Optional[str] = None) -> float:
         """
-        当日盈亏汇总
+        指定日期的盈亏汇总
 
-        汇总今天（按 UTC 日期）所有交易的 profit 字段之和。
+        汇总某天（按 timestamp 字段前 10 位匹配 YYYY-MM-DD）所有交易的
+        profit 字段之和。未指定日期时默认取当天（UTC+8）。
+
+        Args:
+            date_str: 日期字符串（YYYY-MM-DD），可选
 
         Returns:
-            当日盈亏总额（USDT）
+            指定日期的盈亏总额（USDT）
         """
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        target = date_str or datetime.utcnow().strftime("%Y-%m-%d")
         with self._lock:
             try:
                 cursor = self._conn.execute(
@@ -300,13 +304,176 @@ class Database:
                     FROM trades
                     WHERE substr(timestamp, 1, 10) = ?
                     """,
-                    (today,),
+                    (target,),
                 )
                 row = cursor.fetchone()
                 return float(row["pnl"]) if row else 0.0
             except sqlite3.Error as e:
                 logger.error("查询当日盈亏失败: %s", e, exc_info=True)
                 return 0.0
+
+    def get_daily_trades(self, date_str: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        查询指定日期的所有交易记录
+
+        Args:
+            date_str: 日期字符串（YYYY-MM-DD），默认当天
+
+        Returns:
+            交易记录字典列表
+        """
+        target = date_str or datetime.utcnow().strftime("%Y-%m-%d")
+        with self._lock:
+            try:
+                cursor = self._conn.execute(
+                    """
+                    SELECT id, symbol, buy_exchange, sell_exchange,
+                           buy_price, sell_price, amount, status,
+                           profit, paper_trade, timestamp
+                    FROM trades
+                    WHERE substr(timestamp, 1, 10) = ?
+                    ORDER BY created_at DESC
+                    """,
+                    (target,),
+                )
+                rows = cursor.fetchall()
+            except sqlite3.Error as e:
+                logger.error("查询当日交易失败: %s", e, exc_info=True)
+                return []
+        return [dict(row) for row in rows]
+
+    def get_daily_opportunities(
+        self, date_str: Optional[str] = None, limit: int = 1000
+    ) -> List[Dict[str, Any]]:
+        """
+        查询指定日期的套利机会快照
+
+        Args:
+            date_str: 日期字符串（YYYY-MM-DD），默认当天
+            limit: 返回最大条数
+
+        Returns:
+            机会记录字典列表
+        """
+        target = date_str or datetime.utcnow().strftime("%Y-%m-%d")
+        with self._lock:
+            try:
+                cursor = self._conn.execute(
+                    """
+                    SELECT symbol, buy_exchange, sell_exchange,
+                           buy_price, sell_price, spread_percent,
+                           net_profit_rate, estimated_profit, risk_level,
+                           timestamp, created_at
+                    FROM opportunities
+                    WHERE substr(created_at, 1, 10) = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (target, limit),
+                )
+                rows = cursor.fetchall()
+            except sqlite3.Error as e:
+                logger.error("查询当日机会失败: %s", e, exc_info=True)
+                return []
+        return [dict(row) for row in rows]
+
+    def get_opportunity_count(self, date_str: Optional[str] = None) -> int:
+        """
+        查询指定日期的机会快照总数
+
+        Args:
+            date_str: 日期字符串（YYYY-MM-DD），默认当天
+
+        Returns:
+            机会记录总数
+        """
+        target = date_str or datetime.utcnow().strftime("%Y-%m-%d")
+        with self._lock:
+            try:
+                cursor = self._conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM opportunities "
+                    "WHERE substr(created_at, 1, 10) = ?",
+                    (target,),
+                )
+                row = cursor.fetchone()
+                return int(row["cnt"]) if row else 0
+            except sqlite3.Error as e:
+                logger.error("查询机会总数失败: %s", e, exc_info=True)
+                return 0
+
+    def get_daily_report(self, date_str: Optional[str] = None) -> Dict[str, Any]:
+        """
+        生成指定日期的每日报告聚合数据
+
+        汇总当日机会检测与交易执行的统计信息，包括：
+        - 机会总数、唯一交易对数、唯一交易所对数
+        - 交易笔数、盈亏、胜率
+        - 价差分布、Top10 机会、频次统计
+
+        Args:
+            date_str: 日期字符串（YYYY-MM-DD），默认当天
+
+        Returns:
+            每日报告字典
+        """
+        target = date_str or datetime.utcnow().strftime("%Y-%m-%d")
+        opps = self.get_daily_opportunities(target, limit=5000)
+        trades = self.get_daily_trades(target)
+
+        # 唯一交易对与交易所对
+        symbols_set = {o["symbol"] for o in opps}
+        pairs_set = {
+            f"{o['buy_exchange']}→{o['sell_exchange']}" for o in opps
+        }
+
+        # 价差分布
+        spread_dist = {"<0.1%": 0, "0.1-0.5%": 0, "0.5-1%": 0, ">1%": 0}
+        for o in opps:
+            sp = o.get("spread_percent", 0) * 100
+            if sp < 0.1:
+                spread_dist["<0.1%"] += 1
+            elif sp < 0.5:
+                spread_dist["0.1-0.5%"] += 1
+            elif sp < 1:
+                spread_dist["0.5-1%"] += 1
+            else:
+                spread_dist[">1%"] += 1
+
+        # Top10 最大价差机会
+        top_opps = sorted(
+            opps, key=lambda x: x.get("spread_percent", 0), reverse=True
+        )[:10]
+
+        # 交易所对频次
+        pair_freq: Dict[str, int] = {}
+        for o in opps:
+            key = f"{o['buy_exchange']}→{o['sell_exchange']}"
+            pair_freq[key] = pair_freq.get(key, 0) + 1
+
+        # 交易对频次
+        sym_freq: Dict[str, int] = {}
+        for o in opps:
+            sym_freq[o["symbol"]] = sym_freq.get(o["symbol"], 0) + 1
+
+        # 交易统计
+        total_profit = sum(t.get("profit", 0) for t in trades)
+        filled = [t for t in trades if t.get("status") == "filled"]
+        win = [t for t in filled if t.get("profit", 0) > 0]
+        win_rate = len(win) / len(filled) if filled else 0.0
+
+        return {
+            "date": target,
+            "total_opportunities": len(opps),
+            "unique_symbols": len(symbols_set),
+            "unique_exchange_pairs": len(pairs_set),
+            "total_trades": len(trades),
+            "total_profit": round(total_profit, 4),
+            "win_rate": round(win_rate, 4),
+            "spread_distribution": spread_dist,
+            "top_opportunities": top_opps,
+            "exchange_pair_frequency": pair_freq,
+            "symbol_frequency": sym_freq,
+        }
 
     def close(self) -> None:
         """关闭数据库连接，释放资源"""

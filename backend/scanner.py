@@ -92,6 +92,11 @@ class PriceScanner:
         # 存储各交易所的 CCXT 实例
         self._exchange_instances: Dict[str, ccxt.Exchange] = {}
 
+        # 各交易所实际支持的交易对列表（在 _get_valid_symbols 中填充），
+        # 用于过滤掉交易所不支持的交易对（如 kraken 不支持 ARB/USDT），
+        # 避免每次扫描都报错刷屏
+        self._valid_symbols: Dict[str, list] = {}
+
         # 记录各交易所的错误次数，用于监控连接状态
         self.error_counts: Dict[str, int] = {}
 
@@ -181,6 +186,8 @@ class PriceScanner:
         扫描单个交易所的所有交易对
 
         优先使用 fetch_tickers 批量获取，若不支持则逐个获取。
+        会先通过 _get_valid_symbols 过滤掉该交易所不支持的交易对，
+        避免对不支持的交易对（如 kraken 的 ARB/USDT）报错刷屏。
 
         Args:
             exchange_name: 交易所名称
@@ -193,11 +200,14 @@ class PriceScanner:
             logger.warning("交易所 %s 未初始化", exchange_name)
             return {}
 
+        # 获取该交易所实际支持的交易对（过滤掉不支持的）
+        valid_symbols = await self._get_valid_symbols(exchange_name, exchange)
+
         start_time = time.time()
 
         try:
-            # 尝试批量获取所有交易对的 ticker
-            tickers = await exchange.fetch_tickers(self.symbols)
+            # 尝试批量获取所有交易对的 ticker（仅请求支持的交易对）
+            tickers = await exchange.fetch_tickers(valid_symbols)
             result = self._parse_tickers(exchange_name, tickers)
             return result
 
@@ -240,6 +250,7 @@ class PriceScanner:
         逐个获取交易对的 ticker（回退方案）
 
         当交易所不支持 fetch_tickers 批量获取时使用。
+        仅遍历该交易所实际支持的交易对，避免对不支持的交易对报错。
 
         Args:
             exchange_name: 交易所名称
@@ -251,9 +262,12 @@ class PriceScanner:
         if exchange is None:
             return {}
 
+        # 仅遍历该交易所支持的交易对
+        symbols = self._valid_symbols.get(exchange_name, self.symbols)
+
         result: Dict[str, Dict[str, Any]] = {}
 
-        for symbol in self.symbols:
+        for symbol in symbols:
             try:
                 ticker = await exchange.fetch_ticker(symbol)
                 parsed = self._parse_single_ticker(ticker)
@@ -263,6 +277,35 @@ class PriceScanner:
                 logger.debug("获取 %s 的 %s ticker 失败: %s",
                              exchange_name, symbol, e)
 
+        return result
+
+    async def _get_valid_symbols(self, exchange_name: str, exchange: Any) -> list:
+        """
+        获取该交易所实际支持的自选交易对
+
+        通过 load_markets 加载交易所市场数据，过滤出支持的交易对。
+        如果加载失败，返回全部交易对（让后续请求自行报错）。
+        结果会缓存到 self._valid_symbols，供 scan_exchange /
+        _scan_exchange_individual 复用，避免每次扫描都对不支持的
+        交易对（如 kraken 的 ARB/USDT）报错刷屏。
+        """
+        # 命中缓存则直接返回，避免每次扫描都 load_markets
+        if exchange_name in self._valid_symbols:
+            return self._valid_symbols[exchange_name]
+
+        try:
+            await exchange.load_markets()
+            valid = [s for s in self.symbols if s in exchange.markets]
+            if len(valid) < len(self.symbols):
+                skipped = set(self.symbols) - set(valid)
+                logger.info("%s 不支持的交易对: %s", exchange_name, skipped)
+            result = valid if valid else self.symbols
+        except Exception as e:
+            logger.warning("%s 加载市场数据失败: %s，使用全部交易对", exchange_name, e)
+            result = self.symbols
+
+        # 缓存过滤结果，供后续扫描复用
+        self._valid_symbols[exchange_name] = result
         return result
 
     def _parse_tickers(
@@ -458,6 +501,11 @@ class WebSocketScanner:
 
         # 是否正在使用 REST 降级模式
         self._rest_mode: Dict[str, bool] = {}
+
+        # 各交易所实际支持的交易对列表（在 _get_valid_symbols 中填充），
+        # 用于过滤掉交易所不支持的交易对（如 kraken 不支持 ARB/USDT），
+        # 避免每次轮询都报错刷屏
+        self._valid_symbols: Dict[str, list] = {}
 
         # 初始化交易所实例
         self._init_exchanges()
@@ -722,6 +770,9 @@ class WebSocketScanner:
 
         通过 load_markets 加载交易所市场数据，过滤出支持的交易对。
         如果加载失败，返回全部交易对（让后续请求自行报错）。
+        结果会缓存到 self._valid_symbols，供 _rest_poll_loop /
+        _ws_watch_loop / _reconnect_with_recovery 复用，避免每次轮询
+        都对不支持的交易对（如 kraken 的 ARB/USDT）报错刷屏。
         """
         try:
             await exchange.load_markets()
@@ -729,10 +780,14 @@ class WebSocketScanner:
             if len(valid) < len(self.symbols):
                 skipped = set(self.symbols) - set(valid)
                 logger.info("%s 不支持的交易对: %s", exchange_name, skipped)
-            return valid if valid else self.symbols
+            result = valid if valid else self.symbols
         except Exception as e:
             logger.warning("%s 加载市场数据失败: %s，使用全部交易对", exchange_name, e)
-            return self.symbols
+            result = self.symbols
+
+        # 缓存过滤结果，供后续轮询 / 重连补偿复用
+        self._valid_symbols[exchange_name] = result
+        return result
 
     async def _ws_watch_loop(self, exchange_name: str, symbols: list = None) -> None:
         """WebSocket 监听循环（单次尝试，失败后由外层决定是否降级）"""
@@ -740,9 +795,16 @@ class WebSocketScanner:
         if exchange is None:
             return
 
+        # 优先使用传入的过滤后交易对列表，其次回退到缓存的合法列表，
+        # 最后才用 self.symbols。避免对交易所不支持的交易对发起订阅。
+        watch_list = (
+            symbols
+            if symbols
+            else self._valid_symbols.get(exchange_name, self.symbols)
+        )
+
         try:
             # watch_tickers 阻塞直到收到新数据，加超时防止无限阻塞
-            watch_list = symbols if symbols else self.symbols
             tickers = await asyncio.wait_for(
                 exchange.watch_tickers(watch_list),
                 timeout=WS_WATCH_TIMEOUT,
@@ -758,9 +820,16 @@ class WebSocketScanner:
 
             # 更新状态
             if updated > 0:
+                # 首次连接成功（或从断线恢复）时，主动执行一次 REST 数据补偿，
+                # 确保缓存中包含完整的全量行情，避免 WS 推送覆盖不全导致
+                # 检测到过期的套利机会。
+                was_connected = self._connected.get(exchange_name, False)
                 self._connected[exchange_name] = True
                 self.error_counts[exchange_name] = 0
                 self._ws_failures[exchange_name] = 0
+
+                if not was_connected:
+                    await self._reconnect_with_recovery(exchange_name)
 
                 # 计算延迟：优先用 ticker 的 timestamp
                 latest_ts = max(
@@ -837,7 +906,13 @@ class WebSocketScanner:
 
         try:
             # 用 REST 方式获取 tickers（ccxt.pro 实例继承 REST 方法）
-            poll_list = symbols if symbols else self.symbols
+            # 优先使用传入的过滤后交易对列表，其次回退到缓存的合法列表，
+            # 避免对交易所不支持的交易对（如 kraken 的 ARB/USDT）报错。
+            poll_list = (
+                symbols
+                if symbols
+                else self._valid_symbols.get(exchange_name, self.symbols)
+            )
             tickers = await exchange.fetch_tickers(poll_list)
 
             # 解析并更新缓存
@@ -888,8 +963,48 @@ class WebSocketScanner:
                 self._rest_mode[exchange_name] = False
                 self._ws_failures[exchange_name] = 0
                 self._rest_start_times.pop(exchange_name, None)
+                # 恢复 WS 前先执行 REST 数据补偿，补齐断线期间错过的
+                # 价格更新，避免检测到过期的套利机会。
+                await self._reconnect_with_recovery(exchange_name)
 
         await asyncio.sleep(REST_POLL_INTERVAL)
+
+    async def _reconnect_with_recovery(self, exchange_name: str) -> None:
+        """
+        WS 重连后的数据补偿：主动 REST 请求全量数据补齐缓存
+
+        WebSocket 断线重连后直接继续监听，可能因断线期间错过价格更新
+        而检测到过期的套利机会。本方法在重连后主动调用 fetch_tickers
+        拉取一次全量行情，覆盖式更新 price_cache，确保缓存数据新鲜。
+
+        Args:
+            exchange_name: 交易所名称
+        """
+        exchange = self._exchange_instances.get(exchange_name)
+        if exchange is None:
+            return
+
+        try:
+            logger.info("%s WS 重连，执行 REST 数据补偿", exchange_name)
+            valid_symbols = self._valid_symbols.get(exchange_name, self.symbols)
+            tickers = await exchange.fetch_tickers(valid_symbols)
+
+            updated = 0
+            for symbol, ticker in tickers.items():
+                parsed = _parse_ticker(ticker)
+                if parsed:
+                    self.price_cache[exchange_name][symbol] = parsed
+                    updated += 1
+
+            if updated > 0:
+                self._connected[exchange_name] = True
+                self._ws_failures[exchange_name] = 0
+                logger.info(
+                    "%s REST 数据补偿完成，更新 %d 个交易对",
+                    exchange_name, updated,
+                )
+        except Exception as e:
+            logger.warning("%s REST 数据补偿失败: %s", exchange_name, e)
 
     def get_prices(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """

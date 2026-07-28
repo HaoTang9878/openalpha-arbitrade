@@ -39,14 +39,16 @@ class RiskManager:
     在交易执行前检查风控规则，记录交易结果用于实时风控计算。
     """
 
-    def __init__(self, config=None) -> None:
+    def __init__(self, config=None, notifier=None) -> None:
         """
         初始化风控管理器
 
         Args:
             config: 系统配置管理器（可选，用于读取风控参数）
+            notifier: 通知器实例（可选，用于风控触发时发送告警）
         """
         self.config = config
+        self.notifier = notifier
 
         # 运行时状态
         self._open_positions: int = 0
@@ -184,6 +186,13 @@ class RiskManager:
         self._halted = True
         self._halt_reason = reason
         logger.error("风控暂停：%s", reason)
+
+        # 风控触发告警通知（未配置通知器时静默跳过）
+        if self.notifier:
+            try:
+                self.notifier.notify_risk_halt(reason)
+            except Exception as e:  # noqa: BLE001 - 通知失败不能影响风控逻辑
+                logger.warning("风控告警通知失败: %s", e)
 
     def resume(self) -> None:
         """恢复交易（手动调用）"""
