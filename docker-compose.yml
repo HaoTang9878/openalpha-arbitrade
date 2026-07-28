@@ -9,6 +9,7 @@ services:
       - "127.0.0.1:8070:8070"
     environment:
       - TZ=Asia/Shanghai
+      - ARBITRAGE_API_TOKEN=${ARBITRAGE_API_TOKEN:-openalpha_arb_2026}
     mem_limit: 640m
     volumes:
       - ./data:/app/data

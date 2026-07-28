@@ -1,9 +1,33 @@
-.venv
-__pycache__
-*.pyc
-*.pyo
+# 依赖目录
+frontend-react/node_modules
+frontend-react/dist
+
+# 数据目录
 data/
+
+# 环境变量
+.env
+*.env
+
+# Git
 .git
 .gitignore
+
+# 文档
+docs/
 *.md
-docker-compose.yml
+
+# 脚本日志
+*.log
+
+# Python
+__pycache__
+*.pyc
+.venv
+venv
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo

@@ -104,6 +104,30 @@
 
         .navbar-right { display: flex; align-items: center; gap: 12px; }
 
+        /* Token 输入入口 */
+        .token-input-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .token-input {
+            width: 140px;
+            padding: 5px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border-light);
+            background: var(--bg-base);
+            color: var(--text-primary);
+            font-size: 12px;
+            font-family: var(--font-mono);
+        }
+        .token-input::placeholder { color: var(--text-disabled); }
+        .token-status {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-left: 4px;
+        }
+        .token-status.set { color: var(--color-up); }
+
         /* 徽章 */
         .badge {
             display: inline-flex;
@@ -760,19 +784,259 @@
         ::-webkit-scrollbar-thumb:hover { background: var(--text-disabled); }
 
         /* ===================================================================
+         * Tab 导航
+         * =================================================================== */
+        .tab-nav {
+            display: flex;
+            gap: 4px;
+            margin-left: 16px;
+        }
+        .tab-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            padding: 5px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: var(--font-ui);
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+        .tab-btn.active {
+            color: var(--color-accent);
+            border-color: var(--color-accent);
+            background: rgba(252,213,53,0.08);
+        }
+
+        /* Tab 面板容器 */
+        .tab-panel { display: none; flex: 1; min-height: 0; overflow: hidden; }
+        .tab-panel.active { display: flex; flex-direction: column; }
+
+        /* ===================================================================
+         * 每日报告面板
+         * =================================================================== */
+        .report-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .report-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+        }
+        .report-date-input {
+            background: var(--bg-base);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: var(--font-mono);
+        }
+        .report-kpi-row {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: var(--gap);
+        }
+        .report-kpi-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        .report-kpi-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+        .report-kpi-value { font-size: 20px; font-weight: 700; font-family: var(--font-mono); }
+        .report-section { background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+        .report-section-header { padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg-panel); font-size: 13px; font-weight: 600; }
+        .report-section-body { padding: 12px 14px; }
+        .report-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .report-table th { padding: 6px 10px; text-align: right; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border); }
+        .report-table th:first-child { text-align: left; }
+        .report-table td { padding: 6px 10px; text-align: right; border-bottom: 1px solid rgba(42,46,57,0.3); font-family: var(--font-mono); }
+        .report-table td:first-child { text-align: left; font-family: var(--font-ui); }
+
+        /* ===================================================================
+         * 热力图面板
+         * =================================================================== */
+        .heatmap-container {
+            flex: 1;
+            overflow: auto;
+            padding: 16px;
+        }
+        .heatmap-wrapper {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            overflow: auto;
+            max-height: calc(100vh - 120px);
+        }
+        .heatmap-table {
+            border-collapse: collapse;
+            font-size: 11px;
+            font-family: var(--font-mono);
+        }
+        .heatmap-table th {
+            position: sticky;
+            top: 0;
+            background: var(--bg-panel);
+            padding: 6px 8px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border: 1px solid var(--border);
+            white-space: nowrap;
+            z-index: 5;
+        }
+        .heatmap-table th:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 6;
+        }
+        .heatmap-table td {
+            padding: 4px 6px;
+            border: 1px solid var(--border);
+            text-align: center;
+            min-width: 70px;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .heatmap-table td:first-child {
+            position: sticky;
+            left: 0;
+            background: var(--bg-card);
+            font-weight: 600;
+            text-align: left;
+            white-space: nowrap;
+            z-index: 4;
+        }
+        .heatmap-table td:hover { transform: scale(1.05); z-index: 10; }
+        .heatmap-legend {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .heatmap-gradient {
+            width: 200px;
+            height: 12px;
+            border-radius: 6px;
+            background: linear-gradient(to right, #0ECB81, #FBBF24, #F6465D);
+        }
+
+        /* ===================================================================
+         * 管理面板（币种管理 + 风控可视化）
+         * =================================================================== */
+        .manage-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .symbol-mgmt-list {
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        .symbol-mgmt-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+        }
+        .symbol-mgmt-item:hover { border-color: var(--border-light); }
+        .symbol-mgmt-name { font-size: 13px; font-weight: 600; font-family: var(--font-mono); }
+        .symbol-category-tag {
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+        .cat-main { background: rgba(252,213,53,0.15); color: var(--color-accent); }
+        .cat-defi { background: rgba(33,150,243,0.15); color: var(--color-info); }
+        .cat-layer2 { background: rgba(14,203,129,0.15); color: var(--color-up); }
+        .cat-ai { background: rgba(168,85,247,0.15); color: #A855F7; }
+        .cat-rwa { background: rgba(251,191,36,0.15); color: var(--color-warning); }
+        .cat-chain { background: rgba(246,70,93,0.15); color: var(--color-down); }
+        .cat-meme { background: rgba(236,72,153,0.15); color: #EC4899; }
+        .cat-ecosystem { background: rgba(20,184,166,0.15); color: #14B8A6; }
+        .cat-platform { background: rgba(99,102,241,0.15); color: #6366F1; }
+        .cat-other { background: rgba(132,142,156,0.15); color: var(--text-secondary); }
+        .symbol-add-row {
+            display: flex;
+            gap: 6px;
+            padding: 10px;
+            border-top: 1px solid var(--border);
+        }
+        .symbol-add-input {
+            flex: 1;
+            background: var(--bg-base);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: var(--font-mono);
+        }
+
+        /* 风控可视化 */
+        .risk-bar-row { padding: 10px 14px; }
+        .risk-bar-item { margin-bottom: 14px; }
+        .risk-bar-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+        .risk-bar-label { color: var(--text-secondary); }
+        .risk-bar-value { font-family: var(--font-mono); font-weight: 600; }
+        .risk-bar-track {
+            height: 8px;
+            background: var(--bg-base);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .risk-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+        .risk-bar-fill.green { background: var(--color-up); }
+        .risk-bar-fill.yellow { background: var(--color-warning); }
+        .risk-bar-fill.red { background: var(--color-down); }
+
+        /* ===================================================================
          * 响应式断点
-         * - 中等屏：左栏略收窄，右栏保持套利机会可读
-         * - 小屏：隐藏左栏，配置类面板回落至中栏底部
          * =================================================================== */
         @media (max-width: 1280px) {
             .sidebar-left { width: 220px; }
             .sidebar-right { width: 280px; }
             .kpi-value { font-size: 22px; }
+            .report-kpi-row { grid-template-columns: repeat(3, 1fr); }
+            .manage-container { grid-template-columns: 1fr; }
         }
         @media (max-width: 1024px) {
             .sidebar-left { display: none; }
             .sidebar-right { width: 240px; }
             .kpi-row { grid-template-columns: repeat(2, 1fr); }
+            .tab-nav { flex-wrap: wrap; }
         }
     </style>
 </head>
@@ -785,6 +1049,13 @@
     <div class="navbar-left">
         <span class="navbar-logo">OpenAlpha</span>
         <span class="navbar-title">套利交易系统</span>
+        <!-- Tab 导航 -->
+        <div class="tab-nav">
+            <button class="tab-btn active" data-tab="monitor" onclick="switchTab('monitor')">监控</button>
+            <button class="tab-btn" data-tab="report" onclick="switchTab('report')">每日报告</button>
+            <button class="tab-btn" data-tab="heatmap" onclick="switchTab('heatmap')">热力图</button>
+            <button class="tab-btn" data-tab="manage" onclick="switchTab('manage')">管理</button>
+        </div>
     </div>
     <div class="navbar-center">
         <div class="status-indicator">
@@ -797,6 +1068,11 @@
         </div>
     </div>
     <div class="navbar-right">
+        <div class="token-input-group">
+            <input type="password" id="apiTokenInput" placeholder="管理 Token" class="token-input" />
+            <button onclick="saveToken()" class="btn btn-secondary btn-sm">保存</button>
+            <span class="token-status">未设置</span>
+        </div>
         <div class="ws-status">
             <div class="ws-dot" id="wsDot"></div>
             <span id="wsStatusText">断开</span>
@@ -816,6 +1092,8 @@
      - 中栏：KPI + 价格矩阵 + 价差趋势图 + 交易历史（独立滚动）
      - 右栏：套利机会实时流
      =================================================================== -->
+<!-- 监控 Tab 面板 -->
+<div class="tab-panel active" id="tab-monitor">
 <div class="main-layout">
 
     <!-- 左侧栏：交易所状态 + 配置 + API Key -->
@@ -1024,6 +1302,116 @@
     </aside>
 
 </div>
+</div><!-- /tab-monitor -->
+
+<!-- ===================================================================
+     每日报告 Tab 面板
+     =================================================================== -->
+<div class="tab-panel" id="tab-report">
+    <div class="report-container">
+        <div class="report-toolbar">
+            <span style="font-size:13px;font-weight:600;">每日报告</span>
+            <input type="date" class="report-date-input" id="reportDateInput">
+            <button class="btn btn-primary btn-sm" onclick="loadDailyReport()">查询</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadDailyReport(true)">今天</button>
+        </div>
+        <div class="report-kpi-row" id="reportKpiRow">
+            <div class="report-kpi-card"><div class="report-kpi-label">机会总数</div><div class="report-kpi-value" id="rptOpps">--</div></div>
+            <div class="report-kpi-card"><div class="report-kpi-label">交易对数</div><div class="report-kpi-value" id="rptSyms">--</div></div>
+            <div class="report-kpi-card"><div class="report-kpi-label">交易所对</div><div class="report-kpi-value" id="rptPairs">--</div></div>
+            <div class="report-kpi-card"><div class="report-kpi-label">交易笔数</div><div class="report-kpi-value" id="rptTrades">--</div></div>
+            <div class="report-kpi-card"><div class="report-kpi-label">累计盈亏</div><div class="report-kpi-value" id="rptProfit">--</div></div>
+            <div class="report-kpi-card"><div class="report-kpi-label">胜率</div><div class="report-kpi-value" id="rptWinRate">--</div></div>
+        </div>
+        <div class="report-section">
+            <div class="report-section-header">价差分布</div>
+            <div class="report-section-body" id="rptSpreadDist">加载中...</div>
+        </div>
+        <div class="report-section">
+            <div class="report-section-header">Top 10 最大价差机会</div>
+            <div class="report-section-body" id="rptTopOpps">加载中...</div>
+        </div>
+        <div class="report-section">
+            <div class="report-section-header">交易所对频次 Top 10</div>
+            <div class="report-section-body" id="rptPairFreq">加载中...</div>
+        </div>
+        <div class="report-section">
+            <div class="report-section-header">交易对频次 Top 10</div>
+            <div class="report-section-body" id="rptSymFreq">加载中...</div>
+        </div>
+    </div>
+</div><!-- /tab-report -->
+
+<!-- ===================================================================
+     热力图 Tab 面板
+     =================================================================== -->
+<div class="tab-panel" id="tab-heatmap">
+    <div class="heatmap-container">
+        <div class="heatmap-legend">
+            <span>价差小</span>
+            <div class="heatmap-gradient"></div>
+            <span>价差大</span>
+            <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">点击单元格可执行套利</span>
+            <button class="btn btn-secondary btn-sm" onclick="loadHeatmap()">刷新</button>
+        </div>
+        <div class="heatmap-wrapper" id="heatmapWrapper">
+            <div class="empty-state">点击「刷新」加载热力图数据</div>
+        </div>
+    </div>
+</div><!-- /tab-heatmap -->
+
+<!-- ===================================================================
+     管理 Tab 面板（币种管理 + 风控可视化）
+     =================================================================== -->
+<div class="tab-panel" id="tab-manage">
+    <div class="manage-container">
+        <!-- 币种管理 -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">币种管理</span>
+                <span style="font-size:12px;color:var(--text-secondary);" id="symbolMgmtCount">0 个</span>
+            </div>
+            <div class="symbol-mgmt-list" id="symbolMgmtList">
+                <div class="empty-state">加载中...</div>
+            </div>
+            <div class="symbol-add-row">
+                <input type="text" class="symbol-add-input" id="symbolAddInput" placeholder="输入交易对，如 ADA/USDT">
+                <button class="btn btn-primary btn-sm" onclick="addSymbol()">添加</button>
+            </div>
+        </div>
+
+        <!-- 风控可视化 -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">风控状态</span>
+                <button class="btn btn-secondary btn-sm" id="riskResumeBtn" onclick="resumeRisk()" style="display:none;">恢复交易</button>
+            </div>
+            <div class="risk-bar-row" id="riskBarRow">
+                <div class="empty-state">加载中...</div>
+            </div>
+        </div>
+
+        <!-- 机会统计 -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">机会统计（实时）</span>
+                <button class="btn btn-secondary btn-sm" onclick="loadOppStats()">刷新</button>
+            </div>
+            <div class="report-section-body" id="oppStatsBody" style="padding:14px;">
+                <div class="empty-state">加载中...</div>
+            </div>
+        </div>
+
+        <!-- API Key 管理（从左栏迁移） -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">API Key 管理</span>
+                <span style="font-size:12px;color:var(--text-secondary);" id="apiKeySummary2">0/6 已配置</span>
+            </div>
+            <div id="apiKeyList2" style="padding:10px;max-height:300px;overflow-y:auto;"></div>
+        </div>
+    </div>
+</div><!-- /tab-manage -->
 
 <!-- ===================================================================
      底部日志流
@@ -1125,8 +1513,9 @@ function formatTime(ts) {
 /** 建立 WebSocket 连接（带自动重连） */
 function connectWebSocket() {
     const wsUrl = API_BASE.replace('http', 'ws') + '/ws';
+    const url = apiToken ? wsUrl + '?token=' + encodeURIComponent(apiToken) : wsUrl;
     try {
-        ws = new WebSocket(wsUrl);
+        ws = new WebSocket(url);
     } catch (e) {
         console.error('WebSocket 创建失败:', e);
         scheduleReconnect();
@@ -1722,7 +2111,7 @@ function toggleLogPause(event) {
 async function toggleMonitor() {
     const action = isMonitorRunning ? 'stop' : 'start';
     try {
-        await fetch(API_BASE + '/api/scanner/' + action, { method: 'POST' });
+        await authFetch(API_BASE + '/api/scanner/' + action, { method: 'POST' });
         // 状态会通过 WS 或 REST 更新
         refreshStats();
     } catch (e) {
@@ -1738,7 +2127,7 @@ async function toggleAutoExecute() {
 
     try {
         const action = isAutoExecute ? 'start' : 'stop';
-        await fetch(API_BASE + '/api/arbitrage/' + action, { method: 'POST' });
+        await authFetch(API_BASE + '/api/arbitrage/' + action, { method: 'POST' });
     } catch (e) {
         console.error('自动套利操作失败:', e);
         // 回滚 UI
@@ -1759,7 +2148,7 @@ async function executeOpportunity(symbol, buyEx, sellEx, buyPrice, sellPrice) {
     };
 
     try {
-        const resp = await fetch(API_BASE + '/api/trades/execute', {
+        const resp = await authFetch(API_BASE + '/api/trades/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(opp),
@@ -1844,7 +2233,7 @@ async function saveConfig() {
     };
 
     try {
-        const resp = await fetch(API_BASE + '/api/config', {
+        const resp = await authFetch(API_BASE + '/api/config', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
@@ -1923,7 +2312,7 @@ async function saveApiKey(exchange) {
     }
 
     try {
-        const resp = await fetch(API_BASE + '/api/keys', {
+        const resp = await authFetch(API_BASE + '/api/keys', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ exchange, apiKey, secret }),
@@ -1948,7 +2337,7 @@ async function deleteApiKey(exchange) {
     if (!confirm(`确认删除 ${exchange} 的 API Key？`)) return;
 
     try {
-        const resp = await fetch(`${API_BASE}/api/keys/${exchange}`, { method: 'DELETE' });
+        const resp = await authFetch(`${API_BASE}/api/keys/${exchange}`, { method: 'DELETE' });
         const result = await resp.json();
         if (result.status === 'ok') {
             alert(`${exchange} API Key 已删除`);
@@ -2150,12 +2539,427 @@ function stopRestFallback() {
 
 
 /* ===================================================================
- * 初始化
- * =================================================================== */
+  * Token 管理
+  * =================================================================== */
 
-async function init() {
-    // 1. 加载配置（含交易对列表，用于初始化趋势图）
-    await loadConfig();
+// 从 localStorage 读取已保存的 token（刷新页面不丢失）
+let apiToken = localStorage.getItem('arbitrage_api_token') || '';
+
+/** 保存 token 到 localStorage 并重连 WebSocket */
+function saveToken() {
+    const input = document.getElementById('apiTokenInput');
+    apiToken = input.value.trim();
+    if (apiToken) {
+        localStorage.setItem('arbitrage_api_token', apiToken);
+        updateTokenStatus(true);
+        input.value = '';
+        // 重新连接 WebSocket（带 token）
+        if (ws) { ws.close(); }
+        connectWebSocket();
+    } else {
+        localStorage.removeItem('arbitrage_api_token');
+        updateTokenStatus(false);
+    }
+}
+
+/** 更新导航栏 token 状态指示 */
+function updateTokenStatus(hasToken) {
+    const statusEl = document.querySelector('.token-status');
+    if (statusEl) {
+        statusEl.textContent = hasToken ? '✓ 已设置' : '未设置';
+        statusEl.className = 'token-status' + (hasToken ? ' set' : '');
+    }
+}
+
+/** 生成鉴权请求头（仅当 token 存在时附加 Authorization） */
+function getAuthHeaders() {
+    return apiToken ? { 'Authorization': 'Bearer ' + apiToken } : {};
+}
+
+/** 带 token 的 fetch 封装，用于写操作（PUT/POST/DELETE） */
+function authFetch(url, options = {}) {
+    options.headers = options.headers || {};
+    Object.assign(options.headers, getAuthHeaders());
+    return fetch(url, options);
+}
+
+
+/* ===================================================================
+  * Tab 切换
+  * =================================================================== */
+
+/** 切换 Tab 面板 */
+function switchTab(tabName) {
+    // 切换按钮高亮
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+    if (btn) btn.classList.add('active');
+    // 切换面板显示
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('tab-' + tabName);
+    if (panel) panel.classList.add('active');
+    // 按需加载数据
+    if (tabName === 'report') loadDailyReport(true);
+    if (tabName === 'heatmap') loadHeatmap();
+    if (tabName === 'manage') { loadSymbols(); loadRiskBar(); loadOppStats(); renderApiKeyPanel2(); }
+}
+
+
+/* ===================================================================
+  * 每日报告
+  * =================================================================== */
+
+/** 加载每日报告数据并渲染 */
+async function loadDailyReport(today) {
+    const dateInput = document.getElementById('reportDateInput');
+    let dateStr = '';
+    if (today) {
+        const d = new Date();
+        dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        dateInput.value = dateStr;
+    } else {
+        dateStr = dateInput.value || '';
+    }
+    try {
+        const url = API_BASE + '/api/daily-report' + (dateStr ? '?date=' + dateStr : '');
+        const resp = await fetch(url);
+        const r = await resp.json();
+        if (r.error) { alert(r.error); return; }
+        // KPI
+        document.getElementById('rptOpps').textContent = r.total_opportunities || 0;
+        document.getElementById('rptSyms').textContent = r.unique_symbols || 0;
+        document.getElementById('rptPairs').textContent = r.unique_exchange_pairs || 0;
+        document.getElementById('rptTrades').textContent = r.total_trades || 0;
+        const profitEl = document.getElementById('rptProfit');
+        profitEl.textContent = formatUsdt(r.total_profit || 0);
+        profitEl.className = 'report-kpi-value ' + ((r.total_profit||0) >= 0 ? 'text-up' : 'text-down');
+        document.getElementById('rptWinRate').textContent = ((r.win_rate||0)*100).toFixed(1) + '%';
+        // 价差分布
+        const sd = r.spread_distribution || {};
+        let sdHtml = '<table class="report-table"><thead><tr><th>区间</th><th>数量</th><th>占比</th></tr></thead><tbody>';
+        const total = r.total_opportunities || 1;
+        ['<0.1%','0.1-0.5%','0.5-1%','>1%'].forEach(k => {
+            const c = sd[k] || 0;
+            sdHtml += '<tr><td>' + k + '</td><td>' + c + '</td><td>' + (c/total*100).toFixed(1) + '%</td></tr>';
+        });
+        sdHtml += '</tbody></table>';
+        document.getElementById('rptSpreadDist').innerHTML = sdHtml;
+        // Top 机会
+        const tops = r.top_opportunities || [];
+        let topHtml = tops.length ? '<table class="report-table"><thead><tr><th>#</th><th>交易对</th><th>路由</th><th>价差</th><th>净利率</th><th>风险</th></tr></thead><tbody>' : '<div class="empty-state">无数据</div>';
+        tops.slice(0,10).forEach((o,i) => {
+            topHtml += '<tr><td>' + (i+1) + '</td><td>' + o.symbol + '</td><td>' + o.buy_exchange + '→' + o.sell_exchange + '</td><td>' + formatPct(o.spread_percent) + '</td><td>' + formatPct(o.net_profit_rate) + '</td><td>' + o.risk_level + '</td></tr>';
+        });
+        if (tops.length) topHtml += '</tbody></table>';
+        document.getElementById('rptTopOpps').innerHTML = topHtml;
+        // 交易所对频次
+        const pf = r.exchange_pair_frequency || {};
+        const pfSorted = Object.entries(pf).sort((a,b)=>b[1]-a[1]).slice(0,10);
+        let pfHtml = pfSorted.length ? '<table class="report-table"><thead><tr><th>交易所对</th><th>次数</th></tr></thead><tbody>' : '<div class="empty-state">无数据</div>';
+        pfSorted.forEach(([k,v]) => { pfHtml += '<tr><td>' + k + '</td><td>' + v + '</td></tr>'; });
+        if (pfSorted.length) pfHtml += '</tbody></table>';
+        document.getElementById('rptPairFreq').innerHTML = pfHtml;
+        // 交易对频次
+        const sf = r.symbol_frequency || {};
+        const sfSorted = Object.entries(sf).sort((a,b)=>b[1]-a[1]).slice(0,10);
+        let sfHtml = sfSorted.length ? '<table class="report-table"><thead><tr><th>交易对</th><th>次数</th></tr></thead><tbody>' : '<div class="empty-state">无数据</div>';
+        sfSorted.forEach(([k,v]) => { sfHtml += '<tr><td>' + k + '</td><td>' + v + '</td></tr>'; });
+        if (sfSorted.length) sfHtml += '</tbody></table>';
+        document.getElementById('rptSymFreq').innerHTML = sfHtml;
+    } catch (e) {
+        console.error('加载每日报告失败:', e);
+    }
+}
+
+
+/* ===================================================================
+  * 热力图
+  * =================================================================== */
+
+/** 加载并渲染价差热力图 */
+async function loadHeatmap() {
+    try {
+        const resp = await fetch(API_BASE + '/api/heatmap');
+        const data = await resp.json();
+        const symbols = data.symbols || [];
+        const pairs = data.exchange_pairs || [];
+        const cells = data.cells || [];
+        if (symbols.length === 0 || pairs.length === 0) {
+            document.getElementById('heatmapWrapper').innerHTML = '<div class="empty-state">暂无价格数据</div>';
+            return;
+        }
+        // 构建查找表: {symbol: {pairKey: cell}}
+        const cellMap = {};
+        cells.forEach(c => {
+            const key = c.buy_exchange + '→' + c.sell_exchange;
+            if (!cellMap[c.symbol]) cellMap[c.symbol] = {};
+            cellMap[c.symbol][key] = c;
+        });
+        let html = '<table class="heatmap-table"><thead><tr><th>交易对</th>';
+        pairs.forEach(p => { html += '<th>' + p + '</th>'; });
+        html += '</tr></thead><tbody>';
+        symbols.forEach(sym => {
+            html += '<tr><td>' + sym + '</td>';
+            pairs.forEach(p => {
+                const cell = (cellMap[sym] || {})[p];
+                if (cell) {
+                    const sp = cell.spread_percent * 100;
+                    // 颜色映射: 0%→绿, 0.5%→黄, 1%+→红
+                    const color = heatmapColor(sp);
+                    const title = sym + ' ' + p + '\n买: ' + cell.buy_price + '\n卖: ' + cell.sell_price + '\n价差: ' + sp.toFixed(3) + '%\n净利率: ' + (cell.net_profit_rate*100).toFixed(3) + '%';
+                    html += '<td style="background:' + color + ';" title="' + title + '" onclick="heatmapClick(\'' + sym + '\',\'' + cell.buy_exchange + '\',\'' + cell.sell_exchange + '\',' + cell.buy_price + ',' + cell.sell_price + ')">' + sp.toFixed(2) + '</td>';
+                } else {
+                    html += '<td style="color:var(--text-disabled);">--</td>';
+                }
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('heatmapWrapper').innerHTML = html;
+    } catch (e) {
+        console.error('加载热力图失败:', e);
+    }
+}
+
+/** 价差→颜色映射（绿→黄→红） */
+function heatmapColor(spreadPct) {
+    // 0% → 绿, 0.5% → 黄, 1%+ → 红
+    const t = Math.min(Math.max(spreadPct / 1.0, 0), 1);
+    if (t < 0.5) {
+        // 绿→黄
+        const r = Math.round(14 + (251-14) * (t/0.5));
+        const g = Math.round(203 + (191-203) * (t/0.5));
+        const b = Math.round(129 + (36-129) * (t/0.5));
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+    } else {
+        // 黄→红
+        const r = Math.round(251 + (246-251) * ((t-0.5)/0.5));
+        const g = Math.round(191 + (70-191) * ((t-0.5)/0.5));
+        const b = Math.round(36 + (93-36) * ((t-0.5)/0.5));
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+}
+
+/** 热力图单元格点击 → 执行套利 */
+function heatmapClick(symbol, buyEx, sellEx, buyPrice, sellPrice) {
+    executeOpportunity(symbol, buyEx, sellEx, buyPrice, sellPrice);
+}
+
+
+/* ===================================================================
+  * 币种管理
+  * =================================================================== */
+
+/** 加载币种列表并渲染管理面板 */
+async function loadSymbols() {
+    try {
+        const resp = await fetch(API_BASE + '/api/symbols');
+        const data = await resp.json();
+        const infos = data.symbol_info || [];
+        document.getElementById('symbolMgmtCount').textContent = (data.count || 0) + ' 个';
+        let html = '';
+        infos.forEach(info => {
+            const catClass = 'cat-' + info.category;
+            html += '<div class="symbol-mgmt-item">';
+            html += '<span class="symbol-mgmt-name">' + info.symbol + '</span>';
+            html += '<span><span class="symbol-category-tag ' + catClass + '">' + info.category + '</span> ';
+            html += '<button class="btn btn-danger btn-sm" style="padding:2px 6px;font-size:10px;" onclick="removeSymbol(\'' + info.symbol + '\')">删</button></span>';
+            html += '</div>';
+        });
+        document.getElementById('symbolMgmtList').innerHTML = html || '<div class="empty-state">无币种</div>';
+    } catch (e) {
+        console.error('加载币种失败:', e);
+    }
+}
+
+/** 添加交易对 */
+async function addSymbol() {
+    const input = document.getElementById('symbolAddInput');
+    const sym = input.value.trim().toUpperCase();
+    if (!sym) return;
+    try {
+        const resp = await authFetch(API_BASE + '/api/symbols', {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({add: [sym]}),
+        });
+        const r = await resp.json();
+        if (r.status === 'ok') { input.value = ''; loadSymbols(); }
+        else { alert('添加失败: ' + (r.error||'')); }
+    } catch (e) { alert('请求失败: ' + e.message); }
+}
+
+/** 删除交易对 */
+async function removeSymbol(symbol) {
+    if (!confirm('确认删除 ' + symbol + '？')) return;
+    try {
+        const resp = await authFetch(API_BASE + '/api/symbols', {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({remove: [symbol]}),
+        });
+        const r = await resp.json();
+        if (r.status === 'ok') loadSymbols();
+        else { alert('删除失败: ' + (r.error||'')); }
+    } catch (e) { alert('请求失败: ' + e.message); }
+}
+
+
+/* ===================================================================
+  * 风控可视化
+  * =================================================================== */
+
+/** 加载风控状态并渲染进度条 */
+async function loadRiskBar() {
+    try {
+        const resp = await fetch(API_BASE + '/api/risk/status');
+        const r = await resp.json();
+        if (r.error) return;
+        const resumeBtn = document.getElementById('riskResumeBtn');
+        resumeBtn.style.display = r.halted ? 'inline-block' : 'none';
+        let html = '';
+        // 持仓
+        const posPct = Math.min(r.open_positions / r.max_open_positions * 100, 100);
+        const posCls = posPct > 80 ? 'red' : (posPct > 50 ? 'yellow' : 'green');
+        html += riskBarHtml('同时持仓', r.open_positions + ' / ' + r.max_open_positions, posPct, posCls);
+        // 日交易次数
+        const tradePct = Math.min(r.daily_trade_count / r.max_daily_trades * 100, 100);
+        const tradeCls = tradePct > 80 ? 'red' : (tradePct > 50 ? 'yellow' : 'green');
+        html += riskBarHtml('日交易次数', r.daily_trade_count + ' / ' + r.max_daily_trades, tradePct, tradeCls);
+        // 日亏损
+        const lossUsed = Math.max(0, -r.daily_pnl);
+        const lossPct = Math.min(lossUsed / r.max_daily_loss * 100, 100);
+        const lossCls = lossPct > 80 ? 'red' : (lossPct > 50 ? 'yellow' : 'green');
+        html += riskBarHtml('日亏损', formatUsdt(r.daily_pnl) + ' / -$' + r.max_daily_loss, lossPct, lossCls);
+        // 敞口（取最大值）
+        const exposures = Object.values(r.exchange_exposure || {});
+        const maxExp = Math.max(...exposures, 0);
+        const expPct = Math.min(maxExp / r.max_exposure_per_exchange * 100, 100);
+        const expCls = expPct > 80 ? 'red' : (expPct > 50 ? 'yellow' : 'green');
+        html += riskBarHtml('单所最大敞口', '$' + maxExp.toFixed(2) + ' / $' + r.max_exposure_per_exchange, expPct, expCls);
+        document.getElementById('riskBarRow').innerHTML = html;
+    } catch (e) {
+        console.error('加载风控状态失败:', e);
+    }
+}
+
+/** 生成单条风控进度条 HTML */
+function riskBarHtml(label, valueText, pct, cls) {
+    return '<div class="risk-bar-item">' +
+        '<div class="risk-bar-header"><span class="risk-bar-label">' + label + '</span><span class="risk-bar-value">' + valueText + '</span></div>' +
+        '<div class="risk-bar-track"><div class="risk-bar-fill ' + cls + '" style="width:' + pct + '%;"></div></div>' +
+        '</div>';
+}
+
+/** 恢复风控 */
+async function resumeRisk() {
+    try {
+        await authFetch(API_BASE + '/api/risk/resume', {method:'POST'});
+        loadRiskBar();
+    } catch (e) { alert('请求失败: ' + e.message); }
+}
+
+
+/* ===================================================================
+  * 机会统计
+  * =================================================================== */
+
+/** 加载机会统计并渲染 */
+async function loadOppStats() {
+    try {
+        const resp = await fetch(API_BASE + '/api/opportunities/stats');
+        const s = await resp.json();
+        let html = '<div style="margin-bottom:10px;font-size:13px;">当前机会总数: <b>' + s.total + '</b> | 平均净利率: <b>' + formatPct(s.avg_net_profit_rate) + '</b> | 最大净利率: <b>' + formatPct(s.max_net_profit_rate) + '</b></div>';
+        // 风险分布
+        html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">风险等级分布</div>';
+        const byRisk = s.by_risk || {};
+        html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+        ['low','medium','high'].forEach(r => {
+            const c = byRisk[r] || 0;
+            const color = r === 'low' ? 'var(--color-up)' : (r === 'medium' ? 'var(--color-warning)' : 'var(--color-down)');
+            html += '<span style="padding:4px 10px;border-radius:4px;background:' + color + '22;color:' + color + ';">' + r + ': ' + c + '</span>';
+        });
+        html += '</div>';
+        // 价差分布
+        html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">价差分布</div>';
+        const sd = s.spread_distribution || {};
+        html += '<div style="display:flex;gap:8px;">';
+        ['<0.1%','0.1-0.5%','0.5-1%','>1%'].forEach(k => {
+            html += '<span style="padding:4px 10px;border-radius:4px;background:var(--bg-base);">' + k + ': ' + (sd[k]||0) + '</span>';
+        });
+        html += '</div>';
+        document.getElementById('oppStatsBody').innerHTML = html;
+    } catch (e) {
+        console.error('加载机会统计失败:', e);
+    }
+}
+
+
+/* ===================================================================
+  * API Key 面板（管理 Tab 内副本）
+  * =================================================================== */
+
+/** 渲染管理 Tab 内的 API Key 面板 */
+async function renderApiKeyPanel2() {
+    try {
+        const resp = await fetch(API_BASE + '/api/status');
+        const status = await resp.json();
+        const keyStatus = status.api_key_status || {};
+        const exchanges = Object.keys(keyStatus);
+        let configuredCount = 0;
+        const html = exchanges.map(ex => {
+            const configured = keyStatus[ex];
+            if (configured) configuredCount++;
+            const badge = configured
+                ? '<span class="api-key-status configured">已配置</span>'
+                : '<span class="api-key-status not-configured">未配置</span>';
+            return '<div class="api-key-item"><div class="api-key-item-header"><span class="api-key-exchange-name">' + ex + '</span>' + badge + '</div>' +
+                '<input type="password" class="api-key-input" id="apiKey2_' + ex + '" placeholder="API Key">' +
+                '<input type="password" class="api-key-input" id="apiSecret2_' + ex + '" placeholder="Secret">' +
+                '<div class="api-key-btn-row"><button class="api-key-btn save" onclick="saveApiKey2(\'' + ex + '\')">保存</button>' +
+                '<button class="api-key-btn delete" onclick="deleteApiKey2(\'' + ex + '\')">删除</button></div></div>';
+        }).join('');
+        document.getElementById('apiKeyList2').innerHTML = html;
+        document.getElementById('apiKeySummary2').textContent = configuredCount + '/' + exchanges.length + ' 已配置';
+    } catch (e) { console.error('渲染 API Key 面板2失败:', e); }
+}
+
+/** 保存 API Key（管理 Tab） */
+async function saveApiKey2(exchange) {
+    const apiKey = document.getElementById('apiKey2_' + exchange).value.trim();
+    const secret = document.getElementById('apiSecret2_' + exchange).value.trim();
+    if (!apiKey || !secret) { alert('请填写 API Key 和 Secret'); return; }
+    try {
+        const resp = await authFetch(API_BASE + '/api/keys', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({exchange, apiKey, secret}),
+        });
+        const r = await resp.json();
+        if (r.status === 'ok') { alert(exchange + ' 保存成功'); renderApiKeyPanel2(); }
+        else { alert('保存失败: ' + (r.error||'')); }
+    } catch (e) { alert('请求失败: ' + e.message); }
+}
+
+/** 删除 API Key（管理 Tab） */
+async function deleteApiKey2(exchange) {
+    if (!confirm('确认删除 ' + exchange + ' 的 API Key？')) return;
+    try {
+        const resp = await authFetch(API_BASE + '/api/keys/' + exchange, {method:'DELETE'});
+        const r = await resp.json();
+        if (r.status === 'ok') renderApiKeyPanel2();
+        else { alert('删除失败: ' + (r.error||'')); }
+    } catch (e) { alert('请求失败: ' + e.message); }
+}
+
+
+/* ===================================================================
+  * 初始化
+  * =================================================================== */
+
+ async function init() {
+    // 0. 初始化 token 状态
+    updateTokenStatus(!!apiToken);
+
+     // 1. 加载配置（含交易对列表，用于初始化趋势图）
+     await loadConfig();
 
     // 2. 如果配置加载成功但趋势图未初始化，用默认值
     if (!spreadChart && currentSymbols.length > 0) {
@@ -2179,6 +2983,8 @@ async function init() {
     timers.exchanges = setInterval(refreshExchanges, 5000); // 交易所状态 5s
     timers.trades = setInterval(loadTradeHistory, 60000);   // 交易历史 60s
     timers.apiKeys = setInterval(renderApiKeyPanel, 30000); // API Key 状态 30s
+    timers.risk = setInterval(loadRiskBar, 15000);          // 风控状态 15s
+    timers.oppStats = setInterval(loadOppStats, 10000);     // 机会统计 10s
 
     // 6. 心跳（防止 WS 超时断开）
     timers.heartbeat = setInterval(() => {
