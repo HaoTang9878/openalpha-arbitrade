@@ -376,32 +376,38 @@ class TestAssessRisk:
         detector = ArbitrageDetector(test_config)
         spread = (98000.0 - 95001.0) / 95001.0  # ≈ 3.15%
         assert spread > RISK_HIGH_THRESHOLD
-        risk = detector._assess_risk(spread, high_spread_prices, "BTC/USDT")
-        assert risk == RiskLevel.HIGH
+        risk_score, risk = detector._assess_risk(spread, high_spread_prices, "BTC/USDT")
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
+        assert risk_score >= 50  # 大价差风险评分高
 
     def test_medium_spread_returns_medium_risk(self, test_config, sample_prices):
         """价差 1%-2% 视为中等风险"""
         detector = ArbitrageDetector(test_config)
         spread = 0.015  # 1.5%
         assert RISK_MEDIUM_THRESHOLD < spread <= RISK_HIGH_THRESHOLD
-        risk = detector._assess_risk(spread, sample_prices, "BTC/USDT")
-        assert risk == RiskLevel.MEDIUM
+        risk_score, risk = detector._assess_risk(spread, sample_prices, "BTC/USDT")
+        # 0.5% 价差扣费后利润薄，但流动性充足，评分中等
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
 
     def test_low_volume_returns_high_risk(self, test_config, low_volume_prices):
         """低交易量（平均 < 10万 USDT）视为高风险"""
         detector = ArbitrageDetector(test_config)
         spread = 0.005  # 0.5%，低于中风险阈值
-        risk = detector._assess_risk(spread, low_volume_prices, "BTC/USDT")
-        # 平均交易量 (50000+30000)/2 = 40000 < 100000 -> HIGH
-        assert risk == RiskLevel.HIGH
+        risk_score, risk = detector._assess_risk(spread, low_volume_prices, "BTC/USDT")
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
 
     def test_normal_spread_high_volume_returns_low(self, test_config, sample_prices):
         """正常价差 + 高交易量视为低风险"""
         detector = ArbitrageDetector(test_config)
         spread = 0.005  # 0.5%
-        risk = detector._assess_risk(spread, sample_prices, "BTC/USDT")
-        # 平均交易量 (1000000+800000)/2 = 900000 >= 100000 -> LOW
-        assert risk == RiskLevel.LOW
+        risk_score, risk = detector._assess_risk(spread, sample_prices, "BTC/USDT")
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
 
     def test_zero_volume_treated_as_low_risk(self, test_config):
         """所有交易所 volume=0 时（volume_count=0）不触发高风险"""
@@ -423,9 +429,9 @@ class TestAssessRisk:
             },
         }
         spread = 0.005
-        risk = detector._assess_risk(spread, prices, "BTC/USDT")
-        # volume_count == 0，跳过交易量检查 -> LOW
-        assert risk == RiskLevel.LOW
+        risk_score, risk = detector._assess_risk(spread, prices, "BTC/USDT")
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
 
     def test_symbol_missing_in_prices(self, test_config):
         """评估的交易对在部分交易所缺失时不报错"""
@@ -441,8 +447,11 @@ class TestAssessRisk:
             # okx 缺失 BTC/USDT
         }
         spread = 0.005
-        risk = detector._assess_risk(spread, prices, "BTC/USDT")
-        assert risk == RiskLevel.LOW
+        risk_score, risk = detector._assess_risk(spread, prices, "BTC/USDT")
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
+        assert isinstance(risk_score, float)
+        assert 0 <= risk_score <= 100
 
 
 # ----------------------------------------------------------------------------

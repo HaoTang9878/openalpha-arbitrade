@@ -286,15 +286,15 @@ class ArbitrageDetector:
         # 计算预计净利润（以 USDT 计）
         estimated_profit = net_profit_rate * buy_price * order_amount
 
-        # 评估风险等级
-        risk_level = self._assess_risk(spread_percent, prices, symbol)
+        # 评估风险等级（数值化评分 0-100）
+        risk_score, risk_level = self._assess_risk(spread_percent, prices, symbol)
 
         logger.debug(
             "发现套利机会: %s 买入@%s(%.4f) 卖出@%s(%.4f) "
-            "净利润率=%.4f%% 预计利润=%.4f USDT",
+            "净利润率=%.4f%% 预计利润=%.4f USDT 风险评分=%.1f",
             symbol, buy_exchange, buy_price,
             sell_exchange, sell_price,
-            net_profit_rate * 100, estimated_profit,
+            net_profit_rate * 100, estimated_profit, risk_score,
         )
 
         return ArbitrageOpportunity(
@@ -307,37 +307,59 @@ class ArbitrageDetector:
             net_profit_rate=net_profit_rate,
             estimated_profit=estimated_profit,
             risk_level=risk_level,
+            risk_score=risk_score,
             timestamp=timestamp,
         )
 
-    def _assess_risk(
+    def _calculate_risk_score(
         self,
         spread_percent: float,
         prices: Dict[str, Dict[str, Dict[str, Any]]],
         symbol: str,
-    ) -> RiskLevel:
+    ) -> Tuple[float, RiskLevel]:
         """
-        评估套利机会的风险等级
+        多维度数值化风险评分（0-100，越低越安全）
 
-        风险评估基于两个因素：
-        1. 价差大小：价差越大，价格回归风险越高
-        2. 交易量：交易量越低，流动性风险越高
+        评分维度（各占权重）：
+        1. 价差异常度（35%）：价差越偏离历史均值，风险越高
+           - < 0.5% → 低风险（0-20 分）
+           - 0.5%-1% → 中风险（20-50 分）
+           - 1%-2% → 高风险（50-80 分）
+           - > 2% → 极高风险（80-100 分）
+        2. 流动性风险（30%）：交易量越低，执行风险越高
+           - > 1 亿 USDT → 0-10 分
+           - 1000 万-1 亿 → 10-30 分
+           - < 1000 万 → 30-60 分
+        3. 净利润率稳健度（20%）：利润率越接近阈值，越脆弱
+           - > 0.5% → 0-15 分
+           - 0.1%-0.5% → 15-40 分
+           - < 0.1% → 40-60 分
+        4. 交易所数量（15%）：参与交易所越少，集中度风险越高
+           - ≥ 4 所 → 0-10 分
+           - 2-3 所 → 10-30 分
 
         Args:
-            spread_percent: 原始价差百分比
+            spread_percent: 原始价差百分比（小数，如 0.005 = 0.5%）
             prices: 价格快照
             symbol: 交易对
 
         Returns:
-            风险等级枚举值
+            (risk_score 0-100, risk_level 枚举)
         """
-        # 价差越大风险越高（可能是市场异常或数据延迟）
-        if spread_percent > RISK_HIGH_THRESHOLD:
-            return RiskLevel.HIGH
-        if spread_percent > RISK_MEDIUM_THRESHOLD:
-            return RiskLevel.MEDIUM
+        spread_pct = spread_percent * 100  # 转为百分比
 
-        # 检查交易量，低交易量意味着流动性风险
+        # 1. 价差异常度评分（35%权重）
+        if spread_pct < 0.5:
+            spread_score = spread_pct / 0.5 * 20
+        elif spread_pct < 1.0:
+            spread_score = 20 + (spread_pct - 0.5) / 0.5 * 30
+        elif spread_pct < 2.0:
+            spread_score = 50 + (spread_pct - 1.0) / 1.0 * 30
+        else:
+            spread_score = min(80 + (spread_pct - 2.0) * 10, 100)
+        spread_score *= 0.35
+
+        # 2. 流动性风险评分（30%权重）
         total_volume = 0.0
         volume_count = 0
         for exchange_prices in prices.values():
@@ -346,10 +368,63 @@ class ArbitrageDetector:
                 total_volume += ticker["volume"]
                 volume_count += 1
 
-        # 平均交易量低于阈值视为高风险
-        if volume_count > 0:
-            avg_volume = total_volume / volume_count
-            if avg_volume < 100000:  # 10万 USDT 以下视为低流动性
-                return RiskLevel.HIGH
+        avg_volume = total_volume / volume_count if volume_count > 0 else 0
+        if avg_volume > 100_000_000:  # > 1 亿
+            liquidity_score = min(avg_volume / 1_000_000_000 * 10, 10)
+        elif avg_volume > 10_000_000:  # > 1000 万
+            liquidity_score = 10 + (100_000_000 - avg_volume) / 90_000_000 * 20
+        else:  # < 1000 万
+            liquidity_score = 30 + min((10_000_000 - avg_volume) / 10_000_000 * 30, 30)
+        liquidity_score *= 0.30
 
-        return RiskLevel.LOW
+        # 3. 净利润率稳健度（20%权重）
+        total_fee = 0.002  # 双边手续费默认
+        net_rate_pct = spread_pct - total_fee * 100
+        if net_rate_pct > 0.5:
+            profit_score = min(net_rate_pct / 0.5 * 15, 15)
+        elif net_rate_pct > 0.1:
+            profit_score = 15 + (0.5 - net_rate_pct) / 0.4 * 25
+        else:
+            profit_score = 40 + min((0.1 - net_rate_pct) / 0.1 * 20, 20)
+        profit_score *= 0.20
+
+        # 4. 交易所集中度（15%权重）
+        exchange_count = len(prices)
+        if exchange_count >= 4:
+            concentration_score = min(exchange_count * 2.5, 10)
+        else:
+            concentration_score = 10 + (4 - exchange_count) * 10
+        concentration_score *= 0.15
+
+        # 综合评分
+        risk_score = spread_score + liquidity_score + profit_score + concentration_score
+        risk_score = max(0, min(100, risk_score))
+
+        # 映射到风险等级
+        if risk_score >= 60:
+            risk_level = RiskLevel.HIGH
+        elif risk_score >= 30:
+            risk_level = RiskLevel.MEDIUM
+        else:
+            risk_level = RiskLevel.LOW
+
+        return round(risk_score, 1), risk_level
+
+    def _assess_risk(
+        self,
+        spread_percent: float,
+        prices: Dict[str, Dict[str, Dict[str, Any]]],
+        symbol: str,
+    ) -> Tuple[float, RiskLevel]:
+        """
+        评估套利机会的风险等级（委托给 _calculate_risk_score）
+
+        Args:
+            spread_percent: 原始价差百分比
+            prices: 价格快照
+            symbol: 交易对
+
+        Returns:
+            (risk_score 0-100, risk_level 枚举)
+        """
+        return self._calculate_risk_score(spread_percent, prices, symbol)
