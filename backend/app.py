@@ -1140,21 +1140,38 @@ async def create_strategy(data: Dict[str, Any]) -> Dict[str, Any]:
     if strategy_registry.get(name):
         return JSONResponse(status_code=409, content={"error": f"策略 {name} 已存在"})
 
-    # 按类型创建策略
+    # 策略类型映射（按产品定位区分核心/实验性）
     strategy_map = {
-        "grid": GridStrategy,
-        "dca": DcaStrategy,
-        "triangular": TriangularStrategy,
+        # 核心套利策略
+        "triangular": (TriangularStrategy, False),
+        # 实验性策略（非纯套利，仅供研究参考）
+        "grid": (GridStrategy, True),
+        "dca": (DcaStrategy, True),
     }
-    strategy_class = strategy_map.get(strategy_type)
-    if not strategy_class:
-        return JSONResponse(status_code=400, content={"error": f"不支持的策略类型: {strategy_type}"})
+    if strategy_type not in strategy_map:
+        return JSONResponse(status_code=400, content={
+            "error": f"不支持的策略类型: {strategy_type}"
+        })
+
+    strategy_class, is_experimental = strategy_map[strategy_type]
+
+    # 实验性策略需明确确认
+    if is_experimental and not data.get("confirm_experimental", False):
+        return JSONResponse(status_code=403, content={
+            "error": "experimental",
+            "detail": f"{strategy_type} 不属于纯套利策略（属于常规量化），需设置 confirm_experimental=true 明确启用",
+        })
 
     try:
         strategy = strategy_class(name, config)
         strategy_registry.register(name, strategy)
-        logger.info("已创建策略: %s (%s)", name, strategy_type)
-        return {"status": "ok", "name": name, "type": strategy_type}
+        logger.info("已创建策略: %s (%s, experimental=%s)", name, strategy_type, is_experimental)
+        return {
+            "status": "ok",
+            "name": name,
+            "type": strategy_type,
+            "experimental": is_experimental,
+        }
     except Exception as e:
         logger.error("创建策略失败: %s", e, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -1272,14 +1289,13 @@ async def run_backtest(data: Dict[str, Any]) -> Dict[str, Any]:
             "error": f"K线数据不足（{kline_count}条），请先下载历史数据"
         })
 
-    # 创建临时策略实例
+    # 策略类型映射（按产品定位区分核心/实验性）
     strategy_map = {
-        "grid": GridStrategy,
-        "dca": DcaStrategy,
-        "triangular": TriangularStrategy,
+        "triangular": (TriangularStrategy, False),
+        "grid": (GridStrategy, True),
+        "dca": (DcaStrategy, True),
     }
-    strategy_class = strategy_map.get(strategy_type)
-    if not strategy_class:
+    if strategy_type not in strategy_map:
         return JSONResponse(status_code=400, content={
             "error": f"不支持的策略类型: {strategy_type}"
         })
