@@ -502,6 +502,63 @@ async def lifespan(app: FastAPI):
 # ----------------------------------------------------------------------------
 # FastAPI 应用
 # ----------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 限流中间件：IP 级请求限流（60 次/分钟，写操作 20 次/分钟）
+# ---------------------------------------------------------------------------
+import time as _time
+from collections import defaultdict as _defaultdict
+
+class RateLimitMiddleware:
+    """简单的内存限流中间件，按 IP 地址限制请求频率"""
+
+    def __init__(self, app, max_requests: int = 60, window_seconds: int = 60):
+        self.app = app
+        self.max_requests = max_requests
+        self.window = window_seconds
+        self._requests: dict = _defaultdict(list)
+
+    def _get_client_ip(self, request: Request) -> str:
+        """获取客户端真实 IP（支持 Cloudflare 和反向代理）"""
+        # Cloudflare CF-Connecting-IP 头
+        cf_ip = request.headers.get("CF-Connecting-IP")
+        if cf_ip:
+            return cf_ip.strip()
+        # X-Forwarded-For 头
+        xff = request.headers.get("X-Forwarded-For")
+        if xff:
+            return xff.split(",")[0].strip()
+        # 直连 IP
+        return request.client.host if request.client else "unknown"
+
+    def _cleanup_old(self, ip: str, now: float) -> None:
+        """清理过期的时间戳"""
+        cutoff = now - self.window
+        self._requests[ip] = [t for t in self._requests[ip] if t > cutoff]
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
+        ip = self._get_client_ip(request)
+        now = _time.time()
+        self._cleanup_old(ip, now)
+
+        if len(self._requests[ip]) >= self.max_requests:
+            response = JSONResponse(
+                status_code=429,
+                content={"error": "rate_limit_exceeded",
+                        "detail": f"请求过于频繁，每分钟最多 {self.max_requests} 次"},
+            )
+            await response(scope, receive, send)
+            return
+
+        self._requests[ip].append(now)
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(
     title="OpenAlpha 套利交易系统",
     description="加密货币跨交易所套利交易系统 API",
@@ -511,6 +568,32 @@ app = FastAPI(
 
 # ---- 鉴权中间件(写/执行操作需 Bearer token)----
 add_auth_middleware(app)
+
+# 限流：每 IP 每分钟最多 60 次请求
+_rate_limit_store: dict = _defaultdict(list)
+_RATE_LIMIT_MAX = 60
+_RATE_LIMIT_WINDOW = 60  # 秒
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    # 获取客户端 IP（支持 Cloudflare）
+    cf_ip = request.headers.get("CF-Connecting-IP", "")
+    xff = request.headers.get("X-Forwarded-For", "")
+    client_ip = cf_ip.strip() or (xff.split(",")[0].strip() if xff else "") or (request.client.host if request.client else "unknown")
+
+    now = _time.time()
+    cutoff = now - _RATE_LIMIT_WINDOW
+    _rate_limit_store[client_ip] = [t for t in _rate_limit_store[client_ip] if t > cutoff]
+
+    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX:
+        return JSONResponse(
+            status_code=429,
+            content={"error": "rate_limit_exceeded", "detail": f"请求过于频繁，每分钟最多 {_RATE_LIMIT_MAX} 次"},
+        )
+
+    _rate_limit_store[client_ip].append(now)
+    response = await call_next(request)
+    return response
 
 # 挂载前端静态文件目录
 # 优先使用 React 构建产物（frontend-react/dist），回退到旧版 HTML
