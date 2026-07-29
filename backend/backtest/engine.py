@@ -307,3 +307,96 @@ class BacktestEngine:
         )
 
         return result
+
+        return result
+
+
+class ParamSweep:
+    """参数扫描器：对策略进行多参数组合回测"""
+
+    def __init__(self, engine: BacktestEngine) -> None:
+        self.engine = engine
+
+    async def sweep(
+        self,
+        strategy_factory,
+        exchange: str,
+        symbol: str,
+        param_grid: Dict[str, List[Any]],
+        timeframe: str = "1h",
+        initial_capital: float = 10000,
+        kline_limit: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        """
+        执行参数扫描
+
+        Args:
+            strategy_factory: 接受参数字典返回策略实例的工厂函数
+            exchange: 交易所名称
+            symbol: 交易对
+            param_grid: 参数网格 {param_name: [val1, val2, ...]}
+            timeframe: K线周期
+            initial_capital: 初始资金
+            kline_limit: K线数量
+
+        Returns:
+            每组参数的回测结果列表
+        """
+        import itertools
+
+        # 生成所有参数组合
+        keys = list(param_grid.keys())
+        values = list(param_grid.values())
+        combinations = list(itertools.product(*values))
+
+        results: List[Dict[str, Any]] = []
+        logger.info("参数扫描: %d 组参数组合", len(combinations))
+
+        for i, combo in enumerate(combinations):
+            params = dict(zip(keys, combo))
+            strategy = strategy_factory(params)
+            result = await self.engine.run(
+                strategy=strategy,
+                exchange=exchange,
+                symbol=symbol,
+                timeframe=timeframe,
+                initial_capital=initial_capital,
+                kline_limit=kline_limit,
+            )
+            result_dict = result.to_dict()
+            result_dict["params"] = params
+            results.append(result_dict)
+
+            logger.info(
+                "参数扫描 %d/%d: %s 收益=%.2f 胜率=%.1f%%",
+                i + 1, len(combinations), params,
+                result.total_pnl, result.win_rate * 100,
+            )
+
+        # 按收益排序
+        results.sort(key=lambda x: x["total_pnl"], reverse=True)
+        return results
+
+    def export_report(
+        self, results: List[Dict[str, Any]], output_path: str
+    ) -> None:
+        """导出参数扫描报告为 Markdown"""
+        from pathlib import Path
+
+        lines = ["# 参数扫描报告", ""]
+        lines.append(f"共 {len(results)} 组参数组合，按收益排序：")
+        lines.append("")
+        lines.append("| 排名 | 参数 | 收益(USDT) | 收益率 | 胜率 | 最大回撤 | 夏普 |")
+        lines.append("|------|------|-----------|--------|------|---------|------|")
+
+        for i, r in enumerate(results[:20], 1):
+            lines.append(
+                f"| {i} | {r['params']} | {r['total_pnl']:.2f} | "
+                f"{r['total_return_pct']:.2f}% | {r['win_rate']:.1%} | "
+                f"{r['max_drawdown_pct']:.2f}% | {r['sharpe_ratio']:.2f} |"
+            )
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            f.write("\n".join(lines))
+        logger.info("参数扫描报告已导出: %s", output_path)
