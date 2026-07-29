@@ -842,7 +842,7 @@ class TestBackgroundLoops:
     @pytest.mark.asyncio
     async def test_arbitrage_loop_handles_exception(self, app_client):
         """套利循环异常不崩溃"""
-        _, app_module = app_module = app_client
+        _, app_module = app_client
         app_module.arbitrage_running = True
         app_module.latest_opportunities = [
             ArbitrageOpportunity(

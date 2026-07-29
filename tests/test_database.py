@@ -148,9 +148,9 @@ class TestSaveAndGetTrade:
             paper_trade=True, timestamp="2026-07-28 01:00:00",
         )
         tmp_db.save_trade(trade1)
-        # 确保有微小时间差
+        # 确保有可测量的时间差（SQLite 默认时间精度为秒）
         import time
-        time.sleep(0.01)
+        time.sleep(1.1)
         trade2 = TradeResult(
             id="second", symbol="ETH/USDT", buy_exchange="binance",
             sell_exchange="okx", buy_price=3200.0, sell_price=3210.0,
