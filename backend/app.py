@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from backend.auth import add_auth_middleware  # 鉴权中间件
 
@@ -672,6 +672,60 @@ async def settings_page() -> HTMLResponse:
 # ----------------------------------------------------------------------------
 # REST API 端点
 # ----------------------------------------------------------------------------
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus 格式的监控指标端点"""
+    lines = []
+    lines.append("# HELP arbitrage_scanner_running Scanner running status")
+    lines.append("# TYPE arbitrage_scanner_running gauge")
+    lines.append(f"arbitrage_scanner_running {1 if scanner and hasattr(scanner, 'price_cache') else 0}")
+
+    lines.append("# HELP arbitrage_opportunities_total Total opportunities detected")
+    lines.append("# TYPE arbitrage_opportunities_total counter")
+    lines.append(f"arbitrage_opportunities_total {len(latest_opportunities) if latest_opportunities else 0}")
+
+    lines.append("# HELP arbitrage_trades_total Total trades executed")
+    lines.append("# TYPE arbitrage_trades_total counter")
+    trade_count = 0
+    if executor:
+        trade_count = len(executor.get_trade_history(10000))
+    lines.append(f"arbitrage_trades_total {trade_count}")
+
+    lines.append("# HELP arbitrage_uptime_seconds System uptime in seconds")
+    lines.append("# TYPE arbitrage_uptime_seconds gauge")
+    uptime = 0
+    if scanner and hasattr(scanner, '_start_time'):
+        import time as _t
+        uptime = int(_t.time() - getattr(scanner, '_start_time', _t.time()))
+    lines.append(f"arbitrage_uptime_seconds {uptime}")
+
+    lines.append("# HELP arbitrage_exchanges_connected Number of connected exchanges")
+    lines.append("# TYPE arbitrage_exchanges_connected gauge")
+    connected = 0
+    if scanner and hasattr(scanner, '_connected'):
+        connected = sum(1 for v in scanner._connected.values() if v)
+    lines.append(f"arbitrage_exchanges_connected {connected}")
+
+    lines.append("# HELP arbitrage_risk_halted Risk management halted status")
+    lines.append("# TYPE arbitrage_risk_halted gauge")
+    halted = 0
+    if risk_manager:
+        halted = 1 if getattr(risk_manager, '_halted', False) else 0
+    lines.append(f"arbitrage_risk_halted {halted}")
+
+    lines.append("# HELP arbitrage_daily_pnl Daily PnL in USDT")
+    lines.append("# TYPE arbitrage_daily_pnl gauge")
+    pnl = 0.0
+    if risk_manager:
+        pnl = getattr(risk_manager, '_daily_pnl', 0.0)
+    lines.append(f"arbitrage_daily_pnl {pnl}")
+
+    return PlainTextResponse(
+        content="\n".join(lines) + "\n",
+        media_type="text/plain; version=0.0.4",
+    )
+
+
 @app.get("/api/status")
 async def get_status() -> Dict[str, Any]:
     """获取系统整体运行状态"""
