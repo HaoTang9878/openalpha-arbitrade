@@ -34,6 +34,23 @@ class OrderStatus(str, Enum):
     FAILED = "failed"
 
 
+class FailureReason(str, Enum):
+    """
+    交易失败原因分类枚举（对标业界最佳实践）
+
+    将失败按 7+1 类结构化分类，便于统计分析与改进。
+    """
+    INSUFFICIENT_BALANCE = "insufficient_balance"
+    ORDER_CANCELLED = "order_cancelled"
+    NETWORK_ERROR = "network_error"
+    LIQUIDITY_INSUFFICIENT = "liquidity_insufficient"
+    LIMIT_PRICE_NOT_HIT = "limit_price_not_hit"
+    FEE_EXCEEDS_PROFIT = "fee_exceeds_profit"
+    EXCHANGE_ERROR = "exchange_error"
+    RISK_REJECTED = "risk_rejected"
+    UNKNOWN = "unknown"
+
+
 class PriceSnapshot(BaseModel):
     """
     价格快照模型
@@ -88,6 +105,7 @@ class TradeResult(BaseModel):
     status: OrderStatus = Field(OrderStatus.PENDING, description="交易状态")
     profit: float = Field(0.0, description="实际利润（USDT）")
     error: Optional[str] = Field(None, description="错误信息")
+    failure_reason: Optional[str] = Field(None, description="结构化失败原因（FailureReason枚举值）")
     paper_trade: bool = Field(True, description="是否为模拟交易")
     timestamp: str = Field("", description="交易时间")
 

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_OPEN_POSITIONS = 3       # 最大同时持仓数
 DEFAULT_MAX_DAILY_LOSS = 50.0        # 每日最大亏损（USDT）
 DEFAULT_MAX_DAILY_TRADES = 100       # 每日最大交易次数
-DEFAULT_MAX_EXPOSURE_PER_EX = 500.0  # 单交易所最大敞口（USDT）
+DEFAULT_MAX_EXPOSURE_PER_EX = 2000.0  # 单交易所最大敞口（USDT）
 
 
 class RiskManager:

@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 import ccxt.async_support as ccxt
 
 from .config import Config
-from .models import ArbitrageOpportunity, OrderStatus, TradeResult
+from .models import ArbitrageOpportunity, FailureReason, OrderStatus, TradeResult
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +234,7 @@ class TradeExecutor:
                 amount=amount,
                 status=OrderStatus.FAILED,
                 error="余额不足",
+                failure_reason=FailureReason.INSUFFICIENT_BALANCE.value,
                 paper_trade=False,
                 timestamp=timestamp,
             )
@@ -266,6 +267,14 @@ class TradeExecutor:
                 buy_ok, sell_ok, buy_order_id, sell_order_id,
                 opportunity,
             )
+            # 分类失败原因
+            if "余额" in error_msg or "balance" in error_msg.lower():
+                fail_reason = FailureReason.INSUFFICIENT_BALANCE.value
+            elif "network" in error_msg.lower() or "timeout" in error_msg.lower():
+                fail_reason = FailureReason.NETWORK_ERROR.value
+            else:
+                fail_reason = FailureReason.EXCHANGE_ERROR.value
+
             result = TradeResult(
                 id=trade_id,
                 symbol=opportunity.symbol,
@@ -276,6 +285,7 @@ class TradeExecutor:
                 sell_order_id=sell_order_id if sell_ok else None,
                 status=OrderStatus.FAILED,
                 error=error_msg,
+                failure_reason=fail_reason,
                 paper_trade=False,
                 timestamp=timestamp,
             )
