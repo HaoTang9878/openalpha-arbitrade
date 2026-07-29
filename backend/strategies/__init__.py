@@ -8,8 +8,8 @@ from .base import BaseStrategy, StrategySignal, StrategyStatus
 from .registry import StrategyRegistry
 from .orchestrator import StrategyOrchestrator
 from .grid import GridStrategy
-from .dca import DCAStrategy
-from .triangular import TriangularArbitrageStrategy
+from .dca import DcaStrategy
+from .triangular import TriangularStrategy
 from .funding_rate import FundingRateStrategy
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
     "StrategyRegistry",
     "StrategyOrchestrator",
     "GridStrategy",
-    "DCAStrategy",
-    "TriangularArbitrageStrategy",
+    "DcaStrategy",
+    "TriangularStrategy",
     "FundingRateStrategy",
 ]
