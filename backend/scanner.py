@@ -62,6 +62,13 @@ WS_WATCH_TIMEOUT = 15
 # 已知 WebSocket 不稳定的交易所，强制使用 REST 轮询
 WS_BLACKLIST: set = {"bybit", "gate", "kraken", "kucoin"}
 
+# 已知交易所不支持的交易对（load_markets 可能未正确过滤的硬编码黑名单）
+# key: 交易所名称, value: 该交易所不支持但其他交易所支持的交易对集合
+SYMBOL_BLACKLIST: dict = {
+    "okx": {"MKR/USDT"},  # okx 无 MKR/USDT 现货市场
+    "kraken": {"ARB/USDT", "BONK/USDT", "FLOKI/USDT", "WIF/USDT"},
+}
+
 
 class PriceScanner:
     """
@@ -296,13 +303,22 @@ class PriceScanner:
         try:
             await exchange.load_markets()
             valid = [s for s in self.symbols if s in exchange.markets]
+            # 额外过滤硬编码黑名单中的已知不支持交易对
+            blacklist = SYMBOL_BLACKLIST.get(exchange_name, set())
+            if blacklist:
+                valid = [s for s in valid if s not in blacklist]
             if len(valid) < len(self.symbols):
                 skipped = set(self.symbols) - set(valid)
                 logger.info("%s 不支持的交易对: %s", exchange_name, skipped)
             result = valid if valid else self.symbols
         except Exception as e:
             logger.warning("%s 加载市场数据失败: %s，使用全部交易对", exchange_name, e)
-            result = self.symbols
+            # load_markets 失败时仍需过滤硬编码黑名单
+            blacklist = SYMBOL_BLACKLIST.get(exchange_name, set())
+            if blacklist:
+                result = [s for s in self.symbols if s not in blacklist]
+            else:
+                result = self.symbols
 
         # 缓存过滤结果，供后续扫描复用
         self._valid_symbols[exchange_name] = result
