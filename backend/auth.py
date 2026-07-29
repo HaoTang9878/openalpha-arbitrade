@@ -45,6 +45,7 @@ _PUBLIC_GET_PATHS: frozenset[str] = frozenset({
     "/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/me",
     # AI 策略推荐（公开查询）
     "/api/ai/recommend",
+    "/metrics",
 })
 
 # 写/执行路径(必须鉴权)
