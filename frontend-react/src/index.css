@@ -365,6 +365,15 @@
   .shadow-glow-down {
     box-shadow: var(--shadow-glow-down);
   }
+
+  /* 渐变文字（用于标题/大字标题） */
+  .hero-heading {
+    background: linear-gradient(180deg, #646973 0%, #BBCCD7 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
 }
 
 /* ===================================================================

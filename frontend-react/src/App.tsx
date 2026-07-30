@@ -2,7 +2,7 @@
  * App 根组件
  *
  * 组合路由、布局（Sidebar + TopBar）和 WebSocket 连接。
- * 使用 React Router 6 管理 7 个页面路由。
+ * 使用 React Router 6 管理 8 个页面路由（含 Landing 展示页）。
  */
 
 import { useState } from 'react';
@@ -19,6 +19,7 @@ import { Backtest } from './pages/Backtest';
 import { Heatmap } from './pages/Heatmap';
 import { Reports } from './pages/Reports';
 import { Settings } from './pages/Settings';
+import { LandingPage } from './pages/LandingPage';
 
 function AppContent() {
   /** 移动端侧边栏开关 */
@@ -46,6 +47,7 @@ function AppContent() {
         <main className="flex-1 overflow-hidden">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/landing" element={<LandingPage />} />
             <Route path="/bots" element={<Bots />} />
             <Route path="/backtest" element={<Backtest />} />
             <Route path="/heatmap" element={<Heatmap />} />
