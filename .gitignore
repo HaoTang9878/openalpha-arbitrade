@@ -8,6 +8,9 @@ __pycache__/
 dist/
 build/
 
+# Node.js
+node_modules/
+
 # 虚拟环境
 .venv/
 venv/

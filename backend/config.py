@@ -200,15 +200,20 @@ class Config:
 
             # 从环境变量加载交易所 API 密钥
             # 格式：BINANCE_API_KEY, BINANCE_API_SECRET 等
+            # OKX 额外需要 OKX_PASSPHRASE
             for ex in SUPPORTED_EXCHANGES:
                 prefix = ex.upper()
                 api_key = os.getenv(f"{prefix}_API_KEY", "")
                 api_secret = os.getenv(f"{prefix}_API_SECRET", "")
                 if api_key and api_secret:
-                    self.api_keys[ex] = {
+                    keys: Dict[str, str] = {
                         "apiKey": api_key,
                         "secret": api_secret,
                     }
+                    passphrase = os.getenv(f"{prefix}_PASSPHRASE", "")
+                    if passphrase:
+                        keys["passphrase"] = passphrase
+                    self.api_keys[ex] = keys
                     logger.debug("已加载 %s 交易所的 API 密钥", ex)
         except Exception as e:
             logger.error("从环境变量加载配置失败: %s", e, exc_info=True)

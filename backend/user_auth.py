@@ -22,6 +22,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -34,8 +35,20 @@ logger = logging.getLogger(__name__)
 ACCESS_TOKEN_EXPIRE = 3600 * 24       # 24 小时
 REFRESH_TOKEN_EXPIRE = 3600 * 24 * 7  # 7 天
 
-# 默认密钥（生产环境应通过环境变量 JWT_SECRET_KEY 配置）
-DEFAULT_SECRET = os.environ.get("JWT_SECRET_KEY", "openalpha_arbitrage_secret_2026")
+# PBKDF2 密码哈希参数
+_PBKDF2_ITERATIONS = 100_000
+_PBKDF2_SALT_BYTES = 16
+
+# JWT 密钥：从环境变量读取，未配置时生成随机密钥并警告
+_env_secret = os.environ.get("JWT_SECRET_KEY")
+if _env_secret:
+    DEFAULT_SECRET = _env_secret
+else:
+    DEFAULT_SECRET = secrets.token_hex(32)
+    logger.warning(
+        "JWT_SECRET_KEY 未配置，已生成随机密钥。"
+        "重启后已签发的 Token 将失效，请在 .env 中设置 JWT_SECRET_KEY。"
+    )
 
 
 class UserAuth:
@@ -83,22 +96,33 @@ class UserAuth:
 
     def _hash_password(self, password: str) -> str:
         """
-        密码哈希（SHA256 + 盐）
-
-        生产环境建议使用 bcrypt，此处用标准库实现避免额外依赖。
+        密码哈希（PBKDF2-HMAC-SHA256 + 随机盐）
 
         Args:
             password: 明文密码
 
         Returns:
-            哈希后的密码字符串
+            格式为 "iterations:salt_hex:hash_hex" 的密码字符串
         """
-        salt = "openalpha_salt_2026"
-        return hashlib.sha256((password + salt).encode()).hexdigest()
+        salt = os.urandom(_PBKDF2_SALT_BYTES)
+        dk = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), salt, _PBKDF2_ITERATIONS
+        )
+        return f"{_PBKDF2_ITERATIONS}:{salt.hex()}:{dk.hex()}"
 
-    def _verify_password(self, password: str, password_hash: str) -> bool:
+    def _verify_password(self, password: str, stored: str) -> bool:
         """验证密码"""
-        return hmac.compare_digest(self._hash_password(password), password_hash)
+        try:
+            iterations_str, salt_hex, hash_hex = stored.split(":")
+            iterations = int(iterations_str)
+            salt = bytes.fromhex(salt_hex)
+            expected = bytes.fromhex(hash_hex)
+            dk = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), salt, iterations
+            )
+            return hmac.compare_digest(dk, expected)
+        except (ValueError, AttributeError):
+            return False
 
     def _generate_jwt(self, payload: Dict[str, Any], expire: int) -> str:
         """

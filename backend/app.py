@@ -40,7 +40,6 @@ from .config import (
     Config,
     SUPPORTED_EXCHANGES,
     SYMBOL_CATEGORIES,
-    get_order_amount_for_price,
     get_symbol_category,
 )
 from .database import Database

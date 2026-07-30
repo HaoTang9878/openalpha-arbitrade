@@ -19,8 +19,6 @@ from __future__ import annotations
 import hmac
 import logging
 import os
-from typing import Iterable
-
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
