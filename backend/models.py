@@ -85,6 +85,10 @@ class ArbitrageOpportunity(BaseModel):
     risk_level: RiskLevel = Field(RiskLevel.MEDIUM, description="风险等级")
     risk_score: float = Field(50.0, description="数值化风险评分（0-100，越低越安全）")
     timestamp: int = Field(0, description="检测时间戳（毫秒）")
+    decision: Optional[Any] = Field(
+        None,
+        description="网格策略引擎评估结果（可选），包含 action/reason/price/notional 等",
+    )
 
 
 class TradeResult(BaseModel):

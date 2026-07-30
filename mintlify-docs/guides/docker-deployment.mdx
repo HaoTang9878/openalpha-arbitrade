@@ -1,0 +1,207 @@
+---
+title: "Docker 部署"
+description: "从 Docker 一键启动到 Cloudflare Tunnel 公网映射的完整流程。"
+---
+
+Docker 是 OpenAlpha **推荐** 的部署方式：多阶段构建产物约 250 MB，启动后内存占用约 200~300 MB，可在 1GB 内存的 VPS 上稳定运行。
+
+## 前置条件
+
+- Linux VPS（Ubuntu 22.04+ / Debian 12+ 推荐）
+- Docker 24+ 与 Docker Compose v2
+- 1GB+ 可用内存
+- Cloudflare 域名（可选，用于 HTTPS 映射）
+
+## 1. 拉取代码并进入目录
+
+```bash
+git clone https://github.com/HaoTang9878/openalpha-arbitrade.git
+cd openalpha-arbitrade
+```
+
+## 2. 准备 `.env`
+
+```bash
+cp .env.example .env
+```
+
+最小必填项：
+
+```bash
+# .env
+ARBITRAGE_API_TOKEN=$(openssl rand -hex 32)
+JWT_SECRET_KEY=$(openssl rand -hex 32)
+TZ=Asia/Shanghai
+
+PAPER_TRADE=true
+```
+
+如果需要 Telegram 告警：
+
+```bash
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+TELEGRAM_CHAT_ID=-1001234567890
+TELEGRAM_MIN_PROFIT_ALERT=0.002
+```
+
+如果准备接入实盘，添加交易所 Key：
+
+```bash
+BINANCE_API_KEY=xxxxxxxx
+BINANCE_API_SECRET=yyyyyyyy
+OKX_API_KEY=...
+OKX_API_SECRET=...
+OKX_PASSPHRASE=...
+```
+
+<Warning>
+  所有 API Key **必须关闭提币权限**，并强烈建议在交易所后台绑定 VPS 公网 IP 白名单。
+</Warning>
+
+## 3. 编辑 `config.yaml`（可选）
+
+默认配置监听 6 个交易所 / 40 个币种，足以覆盖大多数场景。如需调整：
+
+```yaml
+exchanges:
+  - binance
+  - okx
+  - bybit
+  - gate
+  - kucoin
+  - kraken
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+  - SOL/USDT
+  # ... 见仓库默认配置
+min_profitability: 0.001
+order_amount: 0.01
+scan_interval: 3
+max_order_age: 60
+paper_trade: true
+fee_rate: 0.001
+top_n_opportunities: 30
+```
+
+## 4. 启动容器
+
+```bash
+docker-compose up -d
+```
+
+容器启动后会做：
+
+1. 拉取基础镜像（首次约 1 分钟）
+2. 安装 Python 依赖（首次约 1 分钟）
+3. 监听 `127.0.0.1:8070`
+4. 健康检查 `GET /api/status`（30 秒一次）
+
+查看实时日志：
+
+```bash
+docker logs -f openalpha-arbitrage
+```
+
+## 5. 验证服务
+
+```bash
+# 健康检查
+curl http://127.0.0.1:8070/api/status
+
+# 启动扫描
+curl -X POST http://127.0.0.1:8070/api/scanner/start \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+
+# 查看最新价格
+curl http://127.0.0.1:8070/api/prices
+```
+
+打开浏览器访问 http://<VPS_IP>:8070 即可看到监控仪表盘（如果端口绑定的是 `127.0.0.1`，需要 SSH 端口转发或在本地浏览器访问）。
+
+## 6. 暴露公网（Cloudflare Tunnel）
+
+默认端口仅绑定 `127.0.0.1`，**不要直接对外暴露**。生产环境推荐 Cloudflare Tunnel：
+
+```bash
+# 安装 cloudflared
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" \
+  | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt update && sudo apt install -y cloudflared
+
+# 登录
+cloudflared tunnel login
+
+# 创建隧道
+cloudflared tunnel create openalpha
+cloudflared tunnel route dns openalpha arbitrage.example.com
+
+# 配置 /etc/cloudflared/config.yml
+cat <<EOF | sudo tee /etc/cloudflared/config.yml
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+ingress:
+  - hostname: arbitrage.example.com
+    service: http://localhost:8070
+  - service: http_status:404
+EOF
+
+# 注册 systemd 服务
+sudo cloudflared service install
+sudo systemctl enable --now cloudflared
+```
+
+设置完成后 `https://arbitrage.example.com` 会通过 Cloudflare CDN 路由到本地服务，自动获得 HTTPS 与 DDoS 防护。
+
+## 7. 持久化数据
+
+容器把以下目录挂载到宿主机：
+
+```yaml
+volumes:
+  - ./data:/app/data              # JSONL 事件 + SQLite 数据库 + 日志
+  - ./config.yaml:/app/config.yaml # 配置覆盖
+```
+
+`data/` 目录结构：
+
+```
+data/
+├── events.jsonl         # JSONL 事件溯源
+├── arbitrage.db         # SQLite（交易、机会、K 线）
+└── logs/
+    └── arbitrage.log    # RotatingFileHandler（5MB × 5 备份）
+```
+
+## 8. 升级与回滚
+
+```bash
+# 拉取最新代码
+git pull
+
+# 重新构建并重启
+docker-compose build
+docker-compose up -d
+
+# 查看容器状态
+docker-compose ps
+
+# 如需回滚
+git checkout <last-good-commit>
+docker-compose up -d --build
+```
+
+## 9. 停止与清理
+
+```bash
+# 停止容器（保留数据）
+docker-compose stop
+
+# 停止并删除容器（保留数据卷）
+docker-compose down
+
+# 完全清理（含数据卷）
+docker-compose down -v
+```

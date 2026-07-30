@@ -7,6 +7,33 @@ on:
     branches: [main]
 
 jobs:
+  # 代码质量检查：flake8 代码规范 / black 格式化 / isort 导入排序
+  quality:
+    runs-on: ubuntu-latest
+    name: Code Quality Checks
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install code quality tools
+        run: |
+          pip install -r backend/requirements.txt
+          pip install flake8 black isort
+
+      - name: Run flake8 lint
+        run: flake8 backend/ --max-line-length=120 --extend-ignore=E203,W503
+
+      - name: Check code formatting with black
+        run: black --check backend/ --line-length=120
+
+      - name: Check import sorting with isort
+        run: isort --check backend/ --profile black
+
   test:
     runs-on: ubuntu-latest
 
@@ -22,10 +49,33 @@ jobs:
         run: |
           pip install -r backend/requirements.txt
           pip install -r requirements-dev.txt
+          pip install pytest-cov  # 测试覆盖率插件
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -v --tb=short --cov=backend --cov-report=term-missing
+          python -m pytest tests/ -v --tb=short --cov=backend --cov-report=xml --cov-report=term-missing --cov-fail-under=30
+
+  # 安全扫描：bandit 代码安全扫描 / safety 依赖漏洞检查
+  security:
+    runs-on: ubuntu-latest
+    name: Security Checks
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: pip install bandit safety
+
+      - name: Run Bandit security scan
+        run: bandit -r backend/ -ll
+
+      - name: Check dependencies for vulnerabilities
+        run: safety check --short-report
 
   build:
     runs-on: ubuntu-latest

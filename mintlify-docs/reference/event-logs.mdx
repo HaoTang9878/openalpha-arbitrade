@@ -1,0 +1,235 @@
+---
+title: "事件溯源"
+description: "JSONL 事件流格式、事件类型、查询与运维使用。"
+---
+
+OpenAlpha 使用 **JSONL（JSON Lines）** 记录所有运行时事件，每行一个独立的 JSON 对象。事件文件位于容器 `/app/data/events.jsonl`，通过宿主机挂载 `./data:/app/data` 持久化。
+
+## 文件路径
+
+```text
+data/events.jsonl      # 主事件流（由 backend.store.JsonlEventStore 写入）
+data/logs/             # logging 文件输出（RotatingFileHandler，5MB × 5）
+└── arbitrage.log
+```
+
+<Note>
+  `events.jsonl` 与 `arbitrage.log` **职责不同**：前者是结构化的事件溯源（机器可读），后者是开发日志（人可读）。两者互为补充，运维巡检时建议同时看。
+</Note>
+
+## 事件格式
+
+每条事件包含 3 个顶层字段：
+
+```json
+{
+  "ts": "2026-07-31T08:23:14.512000+00:00",
+  "type": "tick",
+  "payload": { ... }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ts` | string (ISO 8601 UTC) | 事件发生时间 |
+| `type` | string | 事件类型（见下表） |
+| `payload` | object | 事件具体内容，结构随 `type` 不同 |
+
+## 主要事件类型
+
+| 事件类型 | 触发时机 | payload 关键字段 |
+|----------|----------|------------------|
+| `tick` | 每次策略评估（外部 tick 或内部循环） | `request` / `decision` / `state` |
+| `portfolio_reset` | `POST /api/portfolio/reset` | `{}` |
+| `test_order_requested` | `POST /api/test-order` | `exchange` / `symbol` / `side` / `amount` |
+| `test_order_cancelled` | `POST /api/test-order/cancel` | `{}` |
+| `scanner_started` | 扫描循环启动 | `exchanges` |
+| `scanner_stopped` | 扫描循环停止 | `{}` |
+| `arbitrage_started` | 自动套利启动 | `mode` |
+| `arbitrage_stopped` | 自动套利停止 | `{}` |
+| `risk_halted` | 风控熔断 | `reason` / `daily_pnl` / `daily_trade_count` |
+| `risk_resumed` | 风控恢复 | `{}` |
+| `trade_executed` | 模拟或实盘订单成交 | `symbol` / `profit` / `buy_exchange` / `sell_exchange` |
+| `error` | 未捕获异常 | `exc_type` / `message` / `traceback` |
+| `corrupt_log_line` | JSONL 解析失败（仅查询接口返回时） | `line` |
+
+## 典型事件示例
+
+### 1. 策略评估（tick）
+
+```json
+{
+  "ts": "2026-07-31T08:23:14.512000+00:00",
+  "type": "tick",
+  "payload": {
+    "request": { "price": 1.0003, "execute": true },
+    "decision": {
+      "action": "sell",
+      "reason": "price is at or above sell floor",
+      "expected_profit_bps": 5.0022,
+      "executed": true,
+      "grid_index": 4
+    },
+    "state": {
+      "usd_available": 30000.25,
+      "usdt_available": 0.0,
+      "realized_profit_usd": 0.25,
+      "open_tranches": []
+    }
+  }
+}
+```
+
+### 2. 风控熔断
+
+```json
+{
+  "ts": "2026-07-31T11:45:02.118000+00:00",
+  "type": "risk_halted",
+  "payload": {
+    "reason": "每日亏损 52.30 USDT 超过上限 50.00",
+    "daily_pnl": -52.30,
+    "daily_trade_count": 27
+  }
+}
+```
+
+### 3. 测试单请求
+
+```json
+{
+  "ts": "2026-07-31T11:50:14.224000+00:00",
+  "type": "test_order_requested",
+  "payload": {
+    "exchange": "binance",
+    "symbol": "BTC/USDT",
+    "side": "buy",
+    "amount": 0.001
+  }
+}
+```
+
+### 4. 套利订单成交
+
+```json
+{
+  "ts": "2026-07-31T12:03:47.901000+00:00",
+  "type": "trade_executed",
+  "payload": {
+    "symbol": "ETH/USDT",
+    "buy_exchange": "binance",
+    "sell_exchange": "okx",
+    "buy_price": 3245.12,
+    "sell_price": 3248.50,
+    "amount": 0.05,
+    "profit": 0.169,
+    "profit_bps": 10.4,
+    "paper": true
+  }
+}
+```
+
+## 为什么用 JSONL？
+
+- **追加写入**：用 `open("a")` 模式追加，性能稳定、不会丢事件
+- **运维友好**：`tail` / `grep` / `awk` 直接处理，无需专用工具
+- **导入方便**：可批量导入 SQLite / DuckDB / ClickHouse 做后续分析
+- **抗损坏**：单行 `json.loads` 失败不会中断后续读取（损坏行标记为 `corrupt_log_line`）
+
+## 查询事件历史
+
+### 通过 API
+
+```bash
+# 最近 100 条（默认）
+curl http://127.0.0.1:8070/api/events
+
+# 最近 500 条
+curl 'http://127.0.0.1:8070/api/events?limit=500'
+```
+
+### 直接查看文件
+
+```bash
+# 最后 20 条事件
+tail -n 20 data/events.jsonl
+
+# 格式化查看
+tail -n 20 data/events.jsonl | jq .
+
+# 只看风控熔断事件
+grep '"type":"risk_halted"' data/events.jsonl | jq .
+
+# 统计今日 tick 数量
+grep '"type":"tick"' data/events.jsonl | wc -l
+
+# 计算已实现利润总和
+grep '"type":"trade_executed"' data/events.jsonl \
+  | jq -r '.payload.profit' \
+  | awk '{s+=$1} END {printf "%.4f USDT\n", s}'
+```
+
+### 用 jq 做时序分析
+
+```bash
+# 按时段统计 tick 决策分布
+cat data/events.jsonl \
+  | jq -r 'select(.type=="tick") | .payload.decision.action' \
+  | sort | uniq -c
+
+# 提取所有买入事件的入场价
+cat data/events.jsonl \
+  | jq -r 'select(.type=="trade_executed" and .payload.side=="buy") | .payload.price'
+```
+
+## 事件保留策略
+
+- `events.jsonl` **无自动滚动**，需运维通过 `logrotate` / `cron` 自行管理
+- 单文件大小持续增长，建议保留最近 30 天或 1GB 后轮转
+- 推荐做法：每日 03:00 备份 + 截断
+
+```bash
+# /etc/cron.d/openalpha-rotate
+0 3 * * *  cd /opt/openalpha-arbitrade && \
+  tar czf /backup/events-$(date +\%Y\%m\%d).jsonl.tar.gz data/events.jsonl && \
+  : > data/events.jsonl
+```
+
+<Warning>
+  截断 `events.jsonl` 期间若服务正在写入，请确保先停服务或用 `cat >> ... && truncate` 原子操作，避免丢事件。
+</Warning>
+
+## 导入数据分析工具
+
+```bash
+# 导入 SQLite
+python3 - <<'PY'
+import sqlite3, json
+conn = sqlite3.connect("events.db")
+conn.execute("""
+  CREATE TABLE IF NOT EXISTS events(
+    ts TEXT, type TEXT, payload TEXT
+  )
+""")
+with open("data/events.jsonl") as f, conn:
+    for line in f:
+        ev = json.loads(line)
+        conn.execute(
+            "INSERT INTO events VALUES (?, ?, ?)",
+            (ev["ts"], ev["type"], json.dumps(ev["payload"]))
+        )
+PY
+```
+
+随后可以用 SQL 做任意维度聚合：
+
+```sql
+SELECT
+  substr(ts, 1, 10) AS day,
+  COUNT(*) AS trades,
+  SUM(CAST(json_extract(payload, '$.profit') AS REAL)) AS pnl
+FROM events
+WHERE type = 'trade_executed'
+GROUP BY day
+ORDER BY day DESC;
+```

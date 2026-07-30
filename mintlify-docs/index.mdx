@@ -1,0 +1,76 @@
+---
+title: "OpenAlpha Arbitrage"
+description: "多交易所加密套利机器人，支持 Tranche 独立仓位记账与多策略调度。"
+---
+
+OpenAlpha Arbitrage 是基于 **CCXT + FastAPI + WebSocket** 的多交易所加密套利交易系统。它在 8 个主流交易所之间扫描跨所价差，基于 **L2 订单簿深度** 计算真实可成交利润，并在模拟/实盘模式下自动执行套利交易。
+
+<Warning>
+  项目默认启用 `paper_trade=true` 模拟模式。在接入实盘 API Key 之前，请充分回测并验证策略，并确保所有交易所 Key **关闭提币权限**。
+</Warning>
+
+## 核心特性
+
+<CardGroup cols={2}>
+  <Card title="8 交易所实时监控" icon="satellite-dish">
+    内置 Binance / OKX / Bybit / Gate / KuCoin / Kraken / MEXC / HTX，默认启用前 6 个；WebSocket 订阅价格 + L2 订单簿，自动回退 REST 轮询。
+  </Card>
+  <Card title="Tranche 仓位记账" icon="layer-group">
+    移植自 arbitrage_tool：每笔交易是独立的 Tranche，独立核算毛利 / 净利，支持梯度（gradient）与静态（static）两种网格模式。
+  </Card>
+  <Card title="四重风控体系" icon="shield-halved">
+    持仓数 / 日亏损 / 日交易次数 / 单所敞口四道闸门；触发后自动熔断并写入 JSONL 事件流。
+  </Card>
+  <Card title="React 监控仪表盘" icon="chart-line">
+    WebSocket 实时推送价格、机会、热力图、交易记录；支持 Token 鉴权访问写操作接口。
+  </Card>
+</CardGroup>
+
+## 技术栈
+
+- **后端**：Python 3.11 + FastAPI + CCXT 4.4 + asyncio + WebSocket
+- **前端**：React + TypeScript + Vite + OKLCH 色彩体系
+- **持久化**：SQLite（交易历史 / 套利机会 / K 线）+ JSONL 事件溯源
+- **部署**：Docker + Docker Compose + Cloudflare Tunnel
+- **监控**：Prometheus `/metrics` 端点 + Telegram 告警
+- **CI/CD**：GitHub Actions（Python 测试 + React 构建）
+
+## 快速链接
+
+<CardGroup cols={3}>
+  <Card title="Docker 一键部署" icon="docker" href="/guides/docker-deployment">
+    复制 `.env.example`、填入 Token、运行 `docker-compose up -d`，三步上线。
+  </Card>
+  <Card title="API 文档" icon="code" href="/reference/api-overview">
+    浏览 50+ REST 端点：状态、配置、扫描、机会、交易、策略、回测、鉴权。
+  </Card>
+  <Card title="GitHub 仓库" icon="github" href="https://github.com/HaoTang9878/openalpha-arbitrade">
+    源码、Issue、Release 与最新提交。
+  </Card>
+  <Card title="策略详解" icon="diagram-project" href="/core-concepts/strategy">
+    Tranche 独立记账、网格套利引擎、gradient / static 模式、卖先买后。
+  </Card>
+  <Card title="风控体系" icon="shield" href="/core-concepts/risk-controls">
+    四重风控详解、待做清单、API Key 最佳实践。
+  </Card>
+  <Card title="事件溯源" icon="stream" href="/reference/event-logs">
+    JSONL 事件格式、事件类型、查询方式。
+  </Card>
+</CardGroup>
+
+## 推荐上线流程
+
+<Steps>
+  <Step title="本地模拟运行">
+    按 [Quickstart](/get-started/quickstart) 启动 FastAPI，访问 http://localhost:8070 打开仪表盘，确认价格扫描与机会检测正常工作。
+  </Step>
+  <Step title="回测策略">
+    使用 `/api/backtest/*` 下载历史 K 线并扫描参数，找到适合当前市场状态的 `min_profitability`、`order_amount`。
+  </Step>
+  <Step title="Docker 部署">
+    按 [Docker 部署指南](/guides/docker-deployment) 将服务打包到 VPS，配置 `.env` 与 Cloudflare Tunnel。
+  </Step>
+  <Step title="小额实盘">
+    在 `/api/portfolio` 与 `/api/risk/status` 监控组合，启用 Telegram 告警，先用 50 USDT 小资金试运行。
+  </Step>
+</Steps>

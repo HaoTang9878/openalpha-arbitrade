@@ -8,6 +8,7 @@
  */
 
 import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useStore } from '../store/useStore';
 import { api } from '../api/client';
 import { KpiCard } from '../components/common/KpiCard';
@@ -17,6 +18,7 @@ import { OpportunityCard } from '../components/common/OpportunityCard';
 import { RiskPanel } from '../components/common/RiskPanel';
 import { TradeTable } from '../components/common/TradeTable';
 import { formatUsdt } from '../utils/format';
+import type { Portfolio } from '../types';
 
 export function Dashboard() {
   const { systemStatus, opportunities, setSystemStatus, setExchanges } = useStore();
@@ -36,6 +38,13 @@ export function Dashboard() {
     const timer = setInterval(fetchStatus, 10000);
     return () => clearInterval(timer);
   }, [setSystemStatus, setExchanges]);
+
+  /** 每 10 秒刷新一次投资组合数据（余额、利润、开放 Tranche） */
+  const { data: portfolio } = useQuery<Portfolio>({
+    queryKey: ['portfolio'],
+    queryFn: () => api.getPortfolio(),
+    refetchInterval: 10000,
+  });
 
   const oppCount = opportunities.length;
   const tradeCount = systemStatus?.trades_count ?? 0;
@@ -85,6 +94,27 @@ export function Dashboard() {
             value={systemStatus?.symbols_count ?? 0}
             sub={`${systemStatus?.exchanges_count ?? 0} 个交易所`}
           />
+          {portfolio && (
+            <>
+              <KpiCard
+                label="USD 余额"
+                value={formatUsdt(portfolio.usd_available)}
+              />
+              <KpiCard
+                label="USDT 余额"
+                value={formatUsdt(portfolio.usdt_available)}
+              />
+              <KpiCard
+                label="已实现利润"
+                value={formatUsdt(portfolio.realized_profit_usd)}
+                colorClass={portfolio.realized_profit_usd >= 0 ? 'text-up' : 'text-down'}
+              />
+              <KpiCard
+                label="开放 Tranche"
+                value={portfolio.open_tranches.length}
+              />
+            </>
+          )}
         </div>
 
         <PriceMatrix />

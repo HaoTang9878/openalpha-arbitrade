@@ -1,0 +1,175 @@
+---
+title: "风控体系"
+description: "四重风控闸门、Tranche 上限、净利润门槛与实盘双开关。"
+---
+
+风控是 OpenAlpha 的 **产品级能力**，不是事后补丁。所有规则在交易执行前检查，不通过则拒绝并写入 JSONL 事件流。
+
+<Note>
+  当前默认参数针对 **模拟模式** 而定。切到实盘前，请参考文末"待做风控清单"补齐剩余能力。
+</Note>
+
+## 当前风控总览
+
+| 风控项 | 默认值 | 来源 |
+|--------|--------|------|
+| 最大同时持仓数 | `3` | `DEFAULT_MAX_OPEN_POSITIONS` |
+| 日最大亏损 | `50 USDT` | `DEFAULT_MAX_DAILY_LOSS` |
+| 日最大交易次数 | `100` | `DEFAULT_MAX_DAILY_TRADES` |
+| 单交易所敞口 | `2000 USDT` | `DEFAULT_MAX_EXPOSURE_PER_EX` |
+| Tranche 数量上限 | `20`（`StrategyConfig` 校验） | `tranche_count` |
+| 净利润门槛 | `5 bps` | `min_profit_bps` |
+| 模拟/实盘双开关 | `paper_trade=true`（默认） | 环境变量 |
+| API Token 写操作鉴权 | 必填 Bearer Token | `ARBITRAGE_API_TOKEN` |
+
+## 四重风控闸门
+
+`backend/risk_manager.py::RiskManager` 在每次执行前按顺序检查：
+
+<Steps>
+  <Step title="系统是否已被熔断">
+    `halted=True` 时直接拒绝，恢复需调用 `POST /api/risk/resume`。
+  </Step>
+  <Step title="最大同时持仓数">
+    `_open_positions >= DEFAULT_MAX_OPEN_POSITIONS (3)` 时拒绝。
+  </Step>
+  <Step title="日最大交易次数">
+    `_daily_trade_count >= 100` 时熔断并标记 `halt_reason`。
+  </Step>
+  <Step title="日最大亏损">
+    `_daily_pnl <= -50 USDT` 时熔断并标记 `halt_reason`。
+  </Step>
+  <Step title="单交易所敞口">
+    买卖双方的 USDT 名义敞口都不能超过 `2000 USDT`。
+  </Step>
+</Steps>
+
+```python
+def check(self, opportunity, prices=None) -> bool:
+    if self._halted:
+        return False
+    if self._open_positions >= DEFAULT_MAX_OPEN_POSITIONS:
+        return False
+    if self._daily_trade_count >= DEFAULT_MAX_DAILY_TRADES:
+        self._halt("每日交易次数达到上限")
+        return False
+    if self._daily_pnl <= -DEFAULT_MAX_DAILY_LOSS:
+        self._halt("每日亏损超过上限")
+        return False
+    if buy_exposure + trade_value > DEFAULT_MAX_EXPOSURE_PER_EX:
+        return False
+    if sell_exposure + trade_value > DEFAULT_MAX_EXPOSURE_PER_EX:
+        return False
+    return True
+```
+
+熔断后可通过 `POST /api/risk/resume` 手动恢复：
+
+```bash
+curl -X POST http://127.0.0.1:8070/api/risk/resume \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+```
+
+## Tranche 数量上限
+
+`StrategyConfig.__post_init__` 对所有 Tranche 相关字段做硬校验：
+
+```python
+if not 500 <= self.total_capital_usd <= 200_000:
+    raise ValueError("total_capital_usd must be between 500 and 200000")
+if not 1 <= self.tranche_count <= 20:
+    raise ValueError("tranche_count must be between 1 and 20")
+if not 1 <= self.max_open_tranches <= 20:
+    raise ValueError("max_open_tranches must be between 1 and 20")
+if self.max_open_tranches > self.tranche_count:
+    raise ValueError("max_open_tranches cannot exceed tranche_count")
+```
+
+任何超出范围的值都会在 `PUT /api/config` 时被 422 拒绝。
+
+## 净利润门槛
+
+`GridArbitrageEngine` 只在净利润 ≥ `min_profit_bps` 时返回 `BUY`（平仓）决策。该指标是 **扣除手续费 + 滑点后** 的真实利润，避免出现"看起来赚钱、扣完费用亏本"的情况。
+
+跨交易所套利时，滑点是基于 **L2 订单簿深度** 动态计算的，所以这个门槛对实盘和模拟都一致。
+
+## 实盘双开关
+
+启用实盘需要 **同时** 修改两个开关，缺一不可：
+
+```bash
+# .env
+PAPER_TRADE=false        # 关闭模拟模式
+ARBITRAGE_API_TOKEN=xxx  # 设置管理令牌
+```
+
+并且必须通过 `POST /api/keys` 写入真实的交易所 API Key。
+
+<Warning>
+  默认端口 `8070` 仅绑定 `127.0.0.1`，不对外暴露。生产环境请务必通过 Cloudflare Tunnel 暴露，不要直接开公网 HTTP。
+</Warning>
+
+## 查询风控状态
+
+```bash
+curl http://127.0.0.1:8070/api/risk/status
+```
+
+返回示例：
+
+```json
+{
+  "halted": false,
+  "halt_reason": "",
+  "open_positions": 1,
+  "max_open_positions": 3,
+  "daily_pnl": 12.45,
+  "max_daily_loss": 50.0,
+  "daily_trade_count": 7,
+  "max_daily_trades": 100,
+  "exchange_exposure": {
+    "binance": 320.5,
+    "okx": 320.5
+  },
+  "max_exposure_per_exchange": 2000.0
+}
+```
+
+## API Key 最佳实践
+
+<CardGroup cols={2}>
+  <Card title="关闭提币权限" icon="lock">
+    在交易所后台创建 API Key 时，**只勾选"读取 + 现货交易"**，绝对不要勾"提币"。
+  </Card>
+  <Card title="使用子账户" icon="users">
+    为每个交易所创建独立的子账户，仅转入预期投入的资金，并设置 IP 白名单。
+  </Card>
+  <Card title="密钥轮换" icon="rotate">
+    任何意外暴露都应立即在交易所后台禁用 Key 并重新签发。同时轮换 `JWT_SECRET_KEY`。
+  </Card>
+  <Card title="不要硬编码" icon="file-shield">
+    Key 通过 `.env` 或 Vault 注入；不要硬编码到源码或 commit 到仓库。
+  </Card>
+</CardGroup>
+
+## 待做风控清单
+
+以下是上线前必须补齐的能力（按优先级排序）：
+
+<Warning>
+  下列项目目前 **尚未实现**，在实盘前请逐项落实。
+</Warning>
+
+- [ ] **库存失衡监控**：跨所余额偏离基准值时报警或熔断，避免单边库存堆积
+- [ ] **手动 Kill Switch**：一个独立的 `/api/kill` 端点，按下后立即停止扫描 + 撤销所有未成交订单 + 写入熔断状态
+- [ ] **最大单笔下单金额**：限制 `order_amount × price` 的 USDT 名义上限
+- [ ] **订单幂等 ID**：防止网络重试导致重复下单
+- [ ] **交易所 API 错误熔断**：连续 N 次 `5xx` 或网络超时自动停止对该所的扫描
+- [ ] **过期价格拒绝**：WebSocket 静默超过 10 秒时拒绝基于该价格的决策
+- [ ] **交易所最小名义额校验**：下单前核对 `min_notional` 与 `lot_size`，避免被交易所拒单
+- [ ] **只读监控账户**：Operator 通过一个独立 Token 只能 `GET`，不能 `POST`
+- [ ] **每日报告 + 周报告**：Telegram / Email 推送，自动总结盈亏、最大回撤、单所表现
+- [ ] **Prometheus Alertmanager 规则**：把 `/metrics` 的关键指标接到告警通道
+- [ ] **回测离线模拟**：用历史 K 线重放策略，验证风控参数在不同市场状态下的表现
+
+完成这些后，建议先用 **50 USDT 小额** 实盘试运行 7~14 天，观察所有告警链路是否通畅，再放大资金规模。

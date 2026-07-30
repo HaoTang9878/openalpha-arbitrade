@@ -1,0 +1,204 @@
+---
+title: "运维手册"
+description: "日常运维操作：监控、告警、暂停、应急响应。"
+---
+
+本指南面向负责 7×24 维护 OpenAlpha 套利机器人的 **运维人员**，覆盖日常检查、异常诊断与紧急处置流程。
+
+## 日常巡检
+
+### 每日必看（5 分钟）
+
+<Steps>
+  <Step title="服务存活">
+    ```bash
+    curl http://127.0.0.1:8070/api/status
+    ```
+    确认 `running=true`、`uptime_seconds` 与预期一致。
+  </Step>
+  <Step title="价格扫描">
+    ```bash
+    curl http://127.0.0.1:8070/api/scanner/status
+    ```
+    确认扫描在跑、`prices` 字典不为空、最近一次更新时间 < 5 秒。
+  </Step>
+  <Step title="风控状态">
+    ```bash
+    curl http://127.0.0.1:8070/api/risk/status
+    ```
+    确认 `halted=false`、`daily_pnl` 未触及熔断线。
+  </Step>
+  <Step title="组合快照">
+    ```bash
+    curl http://127.0.0.1:8070/api/portfolio
+    ```
+    检查 `realized_profit_usd` 与 `open_tranches` 数量符合预期。
+  </Step>
+  <Step title="事件流尾">
+    ```bash
+    tail -n 30 data/events.jsonl | jq .
+    ```
+    无 `ERROR` / `WARNING` 异常堆栈。
+  </Step>
+</Steps>
+
+### 每周回顾（15 分钟）
+
+- 阅读 `data/logs/arbitrage.log`，统计每类告警次数
+- 用 `data/events.jsonl` 计算周累计净利润、胜率、平均持仓时长
+- 检查各交易所的余额是否符合资金分配策略
+- 校准 `min_profitability` / `fee_rate` 是否还匹配当前市场
+
+## 关键指标
+
+`GET /metrics` 暴露 Prometheus 格式指标，重点关注：
+
+| 指标 | 说明 | 告警阈值 |
+|------|------|----------|
+| `open_positions` | 当前持仓数 | ≥ 3 持续 1 小时 |
+| `daily_pnl` | 当日累计盈亏（USDT） | ≤ -50 |
+| `daily_trade_count` | 当日交易次数 | ≥ 80 |
+| `event_loop_lag_ms` | 事件循环延迟 | ≥ 500ms |
+| `ws_connection_count` | WebSocket 连接数 | < 1（断连） |
+| `rest_fallback_count` | REST 回退次数 | ≥ 5/min（WS 不稳定） |
+
+## 暂停与恢复
+
+### 临时暂停（保留状态）
+
+```bash
+# 停止扫描与套利（保留内存状态）
+curl -X POST http://127.0.0.1:8070/api/scanner/stop \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+
+curl -X POST http://127.0.0.1:8070/api/arbitrage/stop \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+```
+
+### 完全暂停（保留数据）
+
+```bash
+docker-compose stop openalpha-arbitrage
+```
+
+### 紧急熔断（Kill Switch）
+
+<Warning>
+  Kill Switch 是实盘专用，目前为占位实现（`POST /api/test-order/cancel` 仅取消测试单）。上线前请实现完整的"立即撤销未成交订单 + 停止扫描 + 标记 halted=true"流程。
+</Warning>
+
+```bash
+# 当前可用的应急操作：
+curl -X POST http://127.0.0.1:8070/api/portfolio/reset \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+
+docker-compose stop openalpha-arbitrage
+```
+
+### 恢复服务
+
+```bash
+# 1. 启动容器
+docker-compose start openalpha-arbitrage
+
+# 2. 重启扫描与套利
+curl -X POST http://127.0.0.1:8070/api/scanner/start \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+
+curl -X POST http://127.0.0.1:8070/api/arbitrage/start \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+
+# 3. 重置风控熔断（如果需要）
+curl -X POST http://127.0.0.1:8070/api/risk/resume \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+```
+
+## 常见异常处置
+
+### 1. WebSocket 频繁断连
+
+症状：`rest_fallback_count` 持续上涨、`ws_connection_count` 在 0/1/2 间跳动。
+
+排查：
+```bash
+docker logs --tail 200 openalpha-arbitrage | grep -E "websocket|reconnect"
+```
+
+处置：
+- 检查 VPS → 交易所的网络连通性
+- 调高 `scanner.reconnect_max_retries`（`backend/scanner.py`）
+- 临时降低 `scan_interval` 让 REST 轮询覆盖空白期
+
+### 2. 风控熔断
+
+症状：`/api/risk/status` 返回 `halted=true`。
+
+处置：
+1. 阅读 `halt_reason`，评估是否属于正常日亏损
+2. 若需要继续交易 → `POST /api/risk/resume`
+3. 若熔断过于频繁 → 调整 `DEFAULT_MAX_DAILY_LOSS` / `DEFAULT_MAX_DAILY_TRADES`（`backend/risk_manager.py`）并重启服务
+
+### 3. 余额不足
+
+症状：实盘交易 `insufficient_balance`。
+
+排查：
+```bash
+curl http://127.0.0.1:8070/api/balances
+```
+
+处置：
+- 调整 `order_amount` 或临时暂停大币种
+- 在交易所手动划转后，等待下一次扫描自动恢复
+
+### 4. 端口被占用
+
+症状：容器启动失败，`bind: address already in use`。
+
+处置：
+```bash
+sudo lsof -iTCP:8070 -sTCP:LISTEN
+# 修改 docker-compose.yml 中的端口映射，例如 "127.0.0.1:8080:8070"
+```
+
+## 备份策略
+
+```bash
+# 每日 03:00 自动备份
+cat <<EOF | sudo tee /etc/cron.d/openalpha-backup
+0 3 * * *  tar czf /backup/openalpha-$(date +\%Y\%m\%d).tar.gz /opt/openalpha-arbitrade/data
+EOF
+```
+
+恢复：
+
+```bash
+docker-compose down
+tar xzf /backup/openalpha-20260730.tar.gz -C /opt/openalpha-arbitrade/
+docker-compose up -d
+```
+
+## 升级流程
+
+```bash
+# 1. 拉取最新代码
+cd /opt/openalpha-arbitrade
+git pull
+
+# 2. 查看 CHANGELOG，确认是否有破坏性变更
+less CHANGELOG.md
+
+# 3. 重建镜像
+docker-compose build
+
+# 4. 重启容器
+docker-compose up -d
+
+# 5. 验证
+curl http://127.0.0.1:8070/api/status
+docker logs --tail 50 openalpha-arbitrage
+```
+
+<Tip>
+  升级前建议先在本地用相同镜像跑一次冒烟测试：先 `docker-compose stop` → 备份 `data/` → `docker-compose up -d` → 5 分钟内检查 `/api/status`、`/api/portfolio`、`/api/risk/status`。
+</Tip>

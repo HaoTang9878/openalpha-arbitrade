@@ -1,0 +1,197 @@
+---
+title: "API 概览"
+description: "FastAPI 全部 REST 端点的中文说明。"
+---
+
+OpenAlpha 暴露约 **50 个 REST 端点**，涵盖状态、配置、扫描、机会检测、交易执行、策略调度、回测、用户认证、AI 建议。所有写操作（POST / PUT / DELETE）都需要 `Authorization: Bearer ${ARBITRAGE_API_TOKEN}`。
+
+## 健康与系统
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/` | HTML 首页（仪表盘 SPA） | 公开 |
+| `GET` | `/bots` | 机器人监控页 | 公开 |
+| `GET` | `/backtest` | 回测页面 | 公开 |
+| `GET` | `/heatmap` | 价差热力图 | 公开 |
+| `GET` | `/reports` | 每日报告页 | 公开 |
+| `GET` | `/settings` | 设置页 | 公开 |
+| `GET` | `/api/status` | 系统运行状态（模式 / uptime / version） | 公开 |
+| `GET` | `/metrics` | Prometheus 指标 | 公开 |
+
+## 配置管理
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/api/config` | 读取当前生效配置 | 公开 |
+| `PUT` | `/api/config` | 修改配置（合并语义） | Token |
+| `GET` | `/api/symbols` | 读取监控交易对列表 | 公开 |
+| `PUT` | `/api/symbols` | 覆盖更新监控交易对 | Token |
+| `GET` | `/api/symbols/categories` | 币种分类表（主流 / DeFi / L2 / AI / RWA / Meme） | 公开 |
+
+### 修改配置示例
+
+```bash
+curl -X PUT http://127.0.0.1:8070/api/config \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "min_profitability": 0.0015,
+    "order_amount": 0.02,
+    "scan_interval": 5,
+    "paper_trade": true
+  }'
+```
+
+## 扫描与机会
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `POST` | `/api/scanner/start` | 启动价格扫描（WebSocket + REST 回退） | Token |
+| `POST` | `/api/scanner/stop` | 停止价格扫描 | Token |
+| `GET` | `/api/prices` | 最新价格快照（按交易所 / 交易对） | 公开 |
+| `GET` | `/api/opportunities` | 当前套利机会列表 | 公开 |
+| `GET` | `/api/opportunities/stats` | 机会聚合统计（按交易所对 / 交易对） | 公开 |
+| `GET` | `/api/heatmap` | 价差热力图数据 | 公开 |
+
+## 套利执行
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `POST` | `/api/arbitrage/start` | 启动自动套利循环 | Token |
+| `POST` | `/api/arbitrage/stop` | 停止自动套利循环 | Token |
+| `GET` | `/api/trades` | 交易历史 | 公开 |
+| `POST` | `/api/trades/execute` | 手动执行一次套利 | Token |
+
+## Tranche 仓位记账（移植自 arbitrage_tool）
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/api/portfolio` | 查询当前 Portfolio（余额 + 开放 Tranche + 已实现利润） | 公开 |
+| `POST` | `/api/portfolio/reset` | 重置 Portfolio 到初始状态（全 USD 启动） | Token |
+| `GET` | `/api/events` | 查询 JSONL 事件流（默认 100 条） | 公开 |
+| `POST` | `/api/test-order` | 创建隔离测试限价单（验证连通性，不影响策略） | Token |
+| `POST` | `/api/test-order/cancel` | 取消测试单 | Token |
+
+### `/api/portfolio` 响应示例
+
+```json
+{
+  "usd_available": 12450.25,
+  "usdt_available": 17549.75,
+  "realized_profit_usd": 87.32,
+  "open_tranches": [
+    {
+      "id": "5f2c...e8",
+      "entry_price": 0.9989,
+      "notional_usd": 3000.0,
+      "usdt_amount": 3003.30,
+      "opened_at": "2026-07-30T10:23:14+00:00",
+      "grid_index": 3,
+      "buy_exchange": "",
+      "sell_exchange": "",
+      "symbol": "USDT/USD"
+    }
+  ]
+}
+```
+
+### `/api/test-order` 请求示例
+
+```bash
+curl -X POST http://127.0.0.1:8070/api/test-order \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "exchange": "binance",
+    "symbol": "BTC/USDT",
+    "side": "buy",
+    "amount": 0.001
+  }'
+```
+
+返回 `{"status": "simulated", ...}`，实盘下单逻辑接入后此处返回真实订单 ID。
+
+## 交易所与余额
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/api/exchanges` | 各交易所连接状态 | 公开 |
+| `GET` | `/api/balances` | 各交易所账户余额 | 公开 |
+| `POST` | `/api/keys` | 保存 API Key（内存生效） | Token |
+| `DELETE` | `/api/keys/{exchange}` | 删除 API Key | Token |
+
+## 风控
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/api/risk/status` | 当前风控指标 + halted 状态 | 公开 |
+| `POST` | `/api/risk/resume` | 手动恢复（解除熔断） | Token |
+| `GET` | `/api/daily-report` | 每日报告（盈亏 + 胜率 + 单所表现） | 公开 |
+
+## 策略管理
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/api/strategies` | 已注册策略列表 | 公开 |
+| `POST` | `/api/strategies/create` | 注册新策略实例 | Token |
+| `POST` | `/api/strategies/{name}/start` | 启动单个策略 | Token |
+| `POST` | `/api/strategies/{name}/stop` | 停止单个策略 | Token |
+| `DELETE` | `/api/strategies/{name}` | 注销策略 | Token |
+| `POST` | `/api/strategies/orchestrator/start` | 启动调度器 | Token |
+| `POST` | `/api/strategies/orchestrator/stop` | 停止调度器 | Token |
+
+支持的策略类型：`grid` / `dca` / `triangular` / `funding_rate`。
+
+## 回测引擎
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/api/backtest/klines` | 查询已下载的 K 线数据 | 公开 |
+| `POST` | `/api/backtest/download` | 下载指定交易对的历史 K 线 | Token |
+| `POST` | `/api/backtest/run` | 执行回测（含参数扫描） | Token |
+
+## 用户认证
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `POST` | `/api/auth/register` | 注册用户（PBKDF2-HMAC-SHA256 哈希） | 公开 |
+| `POST` | `/api/auth/login` | 登录获取 JWT Access + Refresh Token | 公开 |
+| `POST` | `/api/auth/refresh` | 用 Refresh Token 刷新 Access Token | 公开 |
+| `GET` | `/api/auth/me` | 获取当前登录用户信息 | Bearer JWT |
+
+## AI 策略推荐
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `GET` | `/api/ai/recommend` | 根据当前市场状态推荐参数 | 公开 |
+
+## WebSocket
+
+连接 `ws://localhost:8070/ws`，订阅实时推送：
+
+| 消息类型 | payload 字段 | 说明 |
+|----------|--------------|------|
+| `prices` | `{exchange, symbol, bid, ask, last, ts}` | 价格更新 |
+| `opportunities` | `{buy_exchange, sell_exchange, symbol, profit_bps, ...}` | 套利机会 |
+| `trade` | `{symbol, profit, ...}` | 交易结果 |
+| `status` | `{running, mode, uptime}` | 系统状态 |
+| `logs` | `{level, message, timestamp}` | WARNING+ 级别日志 |
+
+前端默认每条都订阅，可以用 `?types=prices,opportunities` 过滤。
+
+## 错误码
+
+| 状态码 | 含义 |
+|--------|------|
+| `200` | 成功 |
+| `401` | 缺少或无效的 Bearer Token（写操作） |
+| `403` | CORS / IP 限流拒绝 |
+| `404` | 端点不存在 |
+| `422` | 请求参数校验失败（如 `tranche_count > 20`） |
+| `429` | IP 限流（默认 60 req/min） |
+| `500` | 服务内部异常（栈写入日志 + JSONL） |
+| `503` | runtime_state / event_store 尚未初始化 |
+
+<Tip>
+  所有 `5xx` 响应同时会写入 `data/events.jsonl`（`type=error`），运维可以通过事件流回溯。
+</Tip>

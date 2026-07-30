@@ -197,6 +197,34 @@ export interface LogEntry {
   timestamp: number;
 }
 
+/** 网格仓位（资金档位） */
+export interface Tranche {
+  id: string;
+  entry_price: number;
+  notional_usd: number;
+  usdt_amount: number;
+  opened_at: string;
+  grid_index: number | null;
+  buy_exchange: string;
+  sell_exchange: string;
+  symbol: string;
+}
+
+/** 投资组合（账户余额与持仓汇总） */
+export interface Portfolio {
+  usd_available: number;
+  usdt_available: number;
+  realized_profit_usd: number;
+  open_tranches: Tranche[];
+}
+
+/** 系统事件流条目 */
+export interface Event {
+  ts: string;
+  type: string;
+  payload: Record<string, unknown>;
+}
+
 /** 币种分类标签颜色映射 */
 export const CATEGORY_COLORS: Record<string, string> = {
   main: 'bg-accent/15 text-accent',

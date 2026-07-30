@@ -14,6 +14,7 @@ import {
   TrendingUp,
   Flame,
   FileText,
+  Wallet,
   Settings,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -32,6 +33,7 @@ const NAV_ITEMS: { path: string; label: string; icon: LucideIcon }[] = [
   { path: '/backtest', label: '回测', icon: TrendingUp },
   { path: '/heatmap', label: '价差热力图', icon: Flame },
   { path: '/reports', label: '每日报告', icon: FileText },
+  { path: '/portfolio', label: '投资组合', icon: Wallet },
   { path: '/settings', label: '设置', icon: Settings },
 ];
 

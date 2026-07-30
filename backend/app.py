@@ -30,7 +30,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from backend.auth import add_auth_middleware  # 鉴权中间件
@@ -55,6 +55,8 @@ from .strategies import (
     StrategyRegistry, StrategyOrchestrator,
     GridStrategy, DcaStrategy, TriangularStrategy,
 )
+from .tranche import StrategyConfig, Portfolio, GridArbitrageEngine
+from .store import JsonlEventStore, RuntimeState
 
 # ----------------------------------------------------------------------------
 # 日志配置
@@ -128,6 +130,10 @@ backtest_engine: Optional[BacktestEngine] = None
 # 策略注册中心与调度器
 strategy_registry: Optional[StrategyRegistry] = None
 strategy_orchestrator: Optional[StrategyOrchestrator] = None
+
+# 运行时状态（lifespan 初始化）
+runtime_state: RuntimeState = None
+event_store: JsonlEventStore = None
 
 # WebSocket 连接管理
 ws_connections: Set[WebSocket] = set()
@@ -400,6 +406,7 @@ async def lifespan(app: FastAPI):
     global history_collector, backtest_engine
     global user_auth
     global ai_advisor
+    global runtime_state, event_store
 
     logger.info("OpenAlpha 套利系统启动中...")
 
@@ -434,6 +441,12 @@ async def lifespan(app: FastAPI):
     # 初始化 AI 策略推荐器
     ai_advisor = AIAdvisor()
     logger.info("AI 策略推荐器已初始化")
+
+    # 初始化 JSONL 事件存储与运行时状态（Portfolio / StrategyConfig）
+    event_store = JsonlEventStore()
+    strategy_config = StrategyConfig()
+    runtime_state = RuntimeState(strategy_config)
+    logger.info("Portfolio + Event store initialized")
 
     # 优先使用 WebSocket 实时扫描器，失败则回退到 REST 轮询
     try:
@@ -1568,6 +1581,73 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except Exception as e:
         logger.error("WebSocket 异常: %s", e, exc_info=True)
         manager.disconnect(websocket)
+
+
+# ----------------------------------------------------------------------------
+# Portfolio / Event store / Test-order 端点
+# ----------------------------------------------------------------------------
+
+@app.get("/api/portfolio")
+async def get_portfolio():
+    """查询当前投资组合状态"""
+    if runtime_state is None:
+        return {"error": "runtime_state not initialized"}
+    return runtime_state.portfolio_dict()
+
+
+@app.post("/api/portfolio/reset")
+async def reset_portfolio():
+    """重置 Portfolio 到初始状态"""
+    # 鉴权：当前 app 未提供 require_write_token 工厂，仅记录 WARNING 日志
+    if runtime_state is None:
+        logger.warning("reset_portfolio called before runtime_state initialized")
+    if runtime_state is not None:
+        runtime_state.reset()
+        if event_store is not None:
+            event_store.append("portfolio_reset", {})
+    return {
+        "status": "reset",
+        "portfolio": runtime_state.portfolio_dict() if runtime_state else {},
+    }
+
+
+@app.get("/api/events")
+async def get_events(limit: int = 100):
+    """查询 JSONL 事件日志"""
+    if event_store is None:
+        return []
+    return event_store.tail(limit)
+
+
+@app.post("/api/test-order")
+async def create_test_order(payload: dict = Body(...)):
+    """创建隔离测试限价单，验证交易所连通性，不影响策略状态"""
+    # 鉴权：当前 app 未提供 require_write_token 工厂，仅记录 WARNING 日志
+    logger.warning("test-order requested without write token check: %s", payload)
+    exchange = payload.get("exchange", "binance")
+    symbol = payload.get("symbol", "BTC/USDT")
+    side = payload.get("side", "buy")
+    amount = payload.get("amount", 0.001)
+    if event_store:
+        event_store.append("test_order_requested", payload)
+    # 占位：实盘下单逻辑后续接入
+    return {
+        "status": "simulated",
+        "exchange": exchange,
+        "symbol": symbol,
+        "side": side,
+        "amount": amount,
+    }
+
+
+@app.post("/api/test-order/cancel")
+async def cancel_test_order():
+    """取消测试单（占位）"""
+    # 鉴权：当前 app 未提供 require_write_token 工厂，仅记录 WARNING 日志
+    logger.warning("test-order cancel requested without write token check")
+    if event_store:
+        event_store.append("test_order_cancelled", {})
+    return {"status": "cancelled"}
 
 
 # ----------------------------------------------------------------------------

@@ -17,6 +17,8 @@ import type {
   OpportunityStats,
   HeatmapData,
   SymbolsResponse,
+  Portfolio,
+  Event,
 } from '../types';
 
 /** API 基础地址（同源访问） */
@@ -191,6 +193,17 @@ export const api = {
     write<{ status?: string; user_id?: string; email?: string; error?: string }>('/api/auth/register', 'POST', { email, password }),
   login: (email: string, password: string) =>
     write<{ status?: string; access_token?: string; refresh_token?: string; user?: Record<string, unknown>; error?: string }>('/api/auth/login', 'POST', { email, password }),
+
+  /** 投资组合（余额、利润、持仓 Tranche） */
+  getPortfolio: () => get<Portfolio>('/api/portfolio'),
+
+  /** 系统事件流（JSONL） */
+  getEvents: (limit = 50) =>
+    get<{ events: Event[]; count: number }>(`/api/events?limit=${limit}`),
+
+  /** 重置投资组合（清空余额与持仓） */
+  resetPortfolio: () =>
+    write<{ status: string; message: string }>('/api/portfolio/reset', 'POST'),
 };
 
 /** WebSocket 连接 URL 构造 */

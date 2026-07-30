@@ -1,8 +1,9 @@
 /**
  * App 根组件
  *
- * 组合路由、布局（Sidebar + TopBar）和 WebSocket 连接。
- * 使用 React Router 6 管理 8 个页面路由（含 Landing 展示页）。
+ * 路由结构：
+ * - /landing: 独立全屏 Landing 展示页（无 Sidebar/TopBar）
+ * - 其他路由: 控制台布局（Sidebar + TopBar + WebSocket）
  */
 
 import { useState } from 'react';
@@ -19,47 +20,36 @@ import { Backtest } from './pages/Backtest';
 import { Heatmap } from './pages/Heatmap';
 import { Reports } from './pages/Reports';
 import { Settings } from './pages/Settings';
+import { Portfolio } from './pages/Portfolio';
 import { LandingPage } from './pages/LandingPage';
 
-function AppContent() {
-  /** 移动端侧边栏开关 */
+/** 控制台布局：Sidebar + TopBar + 页面内容 */
+function ConsoleLayout() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  /** 建立 WebSocket 连接 */
   useWebSocket();
-
-  /** 初始化主题（暗色/亮色） */
   useTheme();
 
   return (
     <div className="flex h-screen overflow-hidden bg-base text-gray-100">
-      {/* 侧边栏 */}
       <Sidebar
         mobileOpen={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}
       />
-
-      {/* 主内容区 */}
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar onMenuClick={() => setMobileSidebarOpen(true)} />
-
-        {/* 路由页面 */}
         <main className="flex-1 overflow-hidden">
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/landing" element={<LandingPage />} />
             <Route path="/bots" element={<Bots />} />
             <Route path="/backtest" element={<Backtest />} />
             <Route path="/heatmap" element={<Heatmap />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
       </div>
-
-      {/* 全局 Toast 通知 */}
       <ToastContainer />
-      {/* 全局确认对话框 */}
       <ConfirmDialog />
     </div>
   );
@@ -68,7 +58,12 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-      <AppContent />
+      <Routes>
+        {/* Landing 页面：独立全屏，不包含控制台布局 */}
+        <Route path="/landing" element={<LandingPage />} />
+        {/* 控制台页面：包含 Sidebar + TopBar */}
+        <Route path="/*" element={<ConsoleLayout />} />
+      </Routes>
     </BrowserRouter>
   );
 }

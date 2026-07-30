@@ -1,0 +1,111 @@
+---
+title: "配置说明"
+description: "环境变量、YAML 配置文件与 API 动态修改三种配置方式。"
+---
+
+OpenAlpha 支持 **环境变量**、**YAML 配置文件** 与 **API 动态修改** 三种配置方式。优先级从高到低为：
+
+1. API 调用 `PUT /api/config` 写入的运行时配置
+2. 环境变量（含 `.env` 文件）
+3. 项目根目录的 `config.yaml`
+
+<Warning>
+  启动时会按优先级合并配置；如未设置任何来源，将使用 `backend/config.py` 中的默认值。修改后建议重启容器以确保一致。
+</Warning>
+
+## 环境变量
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `MIN_PROFITABILITY` | 最小净利润率（开仓 + 平仓都需满足） | `0.001` (0.1%) |
+| `ORDER_AMOUNT` | 单笔下单量（基础币数量） | `0.01` |
+| `SCAN_INTERVAL` | 价格扫描间隔（秒） | `3` |
+| `MAX_ORDER_AGE` | 订单超时（秒） | `60` |
+| `PAPER_TRADE` | 模拟交易模式 | `true` |
+| `FEE_RATE` | 单边手续费率 | `0.001` |
+| `TOP_N_OPPORTUNITIES` | 展示前 N 个机会 | `30` |
+| `ARBITRAGE_API_TOKEN` | 管理令牌（写操作鉴权） | 无（拒绝写操作） |
+| `JWT_SECRET_KEY` | JWT 签名密钥 | 随机生成（重启失效） |
+| `TZ` | 容器时区 | `UTC` |
+| `{EXCHANGE}_API_KEY` | 交易所 API Key | - |
+| `{EXCHANGE}_API_SECRET` | 交易所 API Secret | - |
+| `OKX_PASSPHRASE` | OKX 专用 Passphrase | - |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | - |
+| `TELEGRAM_CHAT_ID` | Telegram 告警群组 ID | - |
+| `TELEGRAM_MIN_PROFIT_ALERT` | 机会告警净利润率阈值 | `0.002` |
+| `ARBITRAGE_API_BASE` | 前端 API 基础地址 | `http://127.0.0.1:8070` |
+
+## YAML 配置文件
+
+在项目根目录创建 `config.yaml`：
+
+```yaml
+exchanges:
+  - binance
+  - okx
+  - bybit
+  - gate
+  - kucoin
+  - kraken
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+  - SOL/USDT
+  - BNB/USDT
+  # ... 完整 40 个交易对见项目仓库
+min_profitability: 0.001
+order_amount: 0.01
+scan_interval: 3
+max_order_age: 60
+paper_trade: true
+fee_rate: 0.001
+top_n_opportunities: 30
+```
+
+<Tip>
+  默认配置监听 6 个交易所、40 个主流币种（BTC/ETH/SOL/DeFi/L2/AI/RWA/Meme 等）。如需调整监控范围，编辑 `exchanges` 与 `symbols` 即可。
+</Tip>
+
+## API 动态修改配置
+
+通过 `PUT /api/config` 端点可以在不重启的情况下修改大部分参数（需 `Authorization: Bearer ${ARBITRAGE_API_TOKEN}`）：
+
+```bash
+curl -X PUT http://127.0.0.1:8070/api/config \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "min_profitability": 0.0015,
+    "order_amount": 0.02,
+    "scan_interval": 5,
+    "paper_trade": true
+  }'
+```
+
+返回当前生效的完整配置，便于确认。
+
+## 交易对管理
+
+- `GET /api/symbols`：查询当前监控列表
+- `PUT /api/symbols`：覆盖更新监控列表
+- `GET /api/symbols/categories`：查看内置的币种分类（主流 / DeFi / Layer2 / AI / RWA / Meme 等）
+
+## 交易所 API Key 管理
+
+通过 `POST /api/keys` 保存（Key 通过环境变量写入会被 `.env` 持久化；通过 API 写入仅在内存生效）：
+
+```bash
+curl -X POST http://127.0.0.1:8070/api/keys \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "exchange": "binance",
+    "api_key": "xxxxxxxx",
+    "api_secret": "yyyyyyyy",
+    "passphrase": null
+  }'
+```
+
+<Warning>
+  所有交易所 API Key **必须关闭提币权限**，推荐使用子账户并限制单笔上限。
+</Warning>

@@ -1,0 +1,155 @@
+---
+title: "策略机制"
+description: "Tranche 独立仓位记账 + GridArbitrageEngine 网格套利引擎的工作原理。"
+---
+
+OpenAlpha 的核心策略是 **Tranche 独立仓位记账系统** + **GridArbitrageEngine 网格套利引擎**。它源自 `arbitrage_tool/app/strategy.py`，并适配了多交易所套利的语义（每笔交易会同时记录 `buy_exchange` / `sell_exchange` / `symbol`）。
+
+## 为什么不是"固定阈值"？
+
+简单固定阈值策略把整个账户当成一个仓位，既无法区分不同价格买入的库存，也无法做精细的盈利核算：
+
+```text
+# 固定阈值（不推荐）
+buy  USDT when USDT/USD <= 0.9994
+sell USDT when USDT/USD >= 1.0000
+```
+
+这种方法忽略了 **成本分布**：1.0010 入场的仓位和 0.9980 入场的仓位，它们的止盈线和回本路径完全不同。固定阈值只能"打包"处理。
+
+## Tranche 独立仓位记账
+
+`backend/tranche.py` 中的 `Tranche` 是核心数据结构。每笔买入交易都是独立的 Tranche 对象：
+
+```python
+@dataclass(slots=True)
+class Tranche:
+    id: str                       # UUID
+    entry_price: float            # 入场价
+    notional_usd: float           # 名义金额（美元）
+    usdt_amount: float            # 持仓数量
+    opened_at: str                # 入场时间（ISO 8601）
+    grid_index: int | None = None # 网格档位
+    buy_exchange: str = ""        # 买入交易所（跨所套利时）
+    sell_exchange: str = ""       # 卖出交易所
+    symbol: str = ""              # 交易对
+```
+
+`Portfolio` 对象管理整体状态：
+
+```python
+@dataclass(slots=True)
+class Portfolio:
+    usd_available: float          # 可用 USD
+    usdt_available: float         # 可用 USDT
+    realized_profit_usd: float    # 累计已实现利润
+    open_tranches: list[Tranche]  # 开放 Tranche 列表
+```
+
+每个 Tranche 独立核算它的 **毛利** 和 **净利**，可以同时持有多个不同入场价的仓位而不互相干扰。
+
+## GridArbitrageEngine 网格套利引擎
+
+`backend/tranche.py::GridArbitrageEngine` 是策略入口，`evaluate(price, portfolio)` 接收当前价格和组合状态，返回 `Decision(action, reason, ...)`。
+
+### 决策流程
+
+<Steps>
+  <Step title="价格有效性校验">
+    非正价格直接返回 `HOLD`，原因 `price must be positive`。
+  </Step>
+  <Step title="检查可回购平仓">
+    若价格 ≤ `buy_trigger_price`，遍历所有开放 Tranche，找出 **净利润 ≥ `min_profit_bps`** 且利润最高的候选，生成 `BUY` 决策（即"买入平掉之前的 SELL 仓"）。
+  </Step>
+  <Step title="检查可开新仓">
+    若价格 ≥ `min_sell_price` 且仍有 USDT 余额 + Tranche 容量，生成 `SELL` 决策（在高价的交易所卖出）。
+  </Step>
+  <Step title="静默区间 HOLD">
+    处于 `buy_trigger_price` 与 `min_sell_price` 之间的"静默带"返回 `HOLD`，避免来回打点。
+  </Step>
+</Steps>
+
+### 策略模式
+
+`StrategyConfig.strategy_mode` 控制档位排列方式：
+
+- **`gradient`**（默认）：从 `max_buy_price` 向下按 `grid_step` 排列档位，每档最多一仓，把资金分散到不同价格深度。
+- **`static`**：固定阈值模式，所有 Tranche 共享同一触发价。
+
+```text
+gradient 示例：
+#1 <= 0.9994
+#2 <= 0.9989
+#3 <= 0.9984
+```
+
+### 关键参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `total_capital_usd` | `30000` | 资金规模（500~200000） |
+| `tranche_count` | `10` | 档位数量（1~20） |
+| `max_open_tranches` | `10` | 最大持仓档位（1~20） |
+| `reference_price` | `1.0` | 参考价（用于动态买入阈值） |
+| `buy_threshold_bps` | `5.0` | 相对参考价的买入阈值 |
+| `min_profit_bps` | `5.0` | 最低净利润（bps） |
+| `fee_bps` | `0.0` | 单边手续费（bps） |
+| `slippage_bps` | `0.0` | 单边滑点（bps） |
+| `min_notional_usd` | `10.0` | 最小下单金额 |
+| `max_buy_price` | `0.9994` | 绝对买入硬上限 |
+| `min_sell_price` | `1.0` | 绝对卖出地板价 |
+| `grid_step` | `0.0005` | 网格步长 |
+| `max_usdt_allocation_pct` | `1.0` | USD 余额占比上限 |
+
+## "卖在先、买在后"
+
+每一轮决策先扫描已有 Tranche 是否能盈利平仓（`BUY`），再考虑是否开新仓（`SELL`）。这种顺序的好处：
+
+1. **降低库存漂移**：先收割已落袋的盈利，再决定是否加仓。
+2. **反弹收割**：不等全局退出信号，每个 Tranche 达到净利润门槛就平掉。
+3. **资金效率**：把闲置的 USD 余额快速回拢，便于新仓的资金周转。
+
+## 毛利 / 净利分离
+
+每次决策同时返回两个指标：
+
+- `expected_gross_profit_bps`：毛利润（不考虑手续费和滑点）
+- `expected_profit_bps`：净利润（扣除手续费 + 滑点）
+
+只有净利润 ≥ `min_profit_bps` 才算有效平仓机会。这避免了"看起来有 5bps，实际扣完费用只剩 1bps"的虚假利润。
+
+```python
+def estimate_buyback(self, tranche: Tranche, buy_price: float):
+    cost_rate = (self.config.fee_bps + self.config.slippage_bps) / 10_000
+    bought_usdt = tranche.notional_usd / buy_price * (1 - cost_rate)
+    profit_usdt = bought_usdt - tranche.usdt_amount
+    profit_usd = profit_usdt * buy_price
+    profit_bps = profit_usdt / tranche.usdt_amount * 10_000
+    return profit_usd, profit_bps
+```
+
+## 与 arbitrage_tool 的差异
+
+OpenAlpha 的 Tranche 系统移植自 arbitrage_tool，但做了以下适配：
+
+| 维度 | arbitrage_tool | openalpha-arbitrage |
+|------|----------------|---------------------|
+| 套利方向 | 单交易所内 USD ↔ USDT | **跨交易所价差套利** |
+| 价格来源 | Binance bookTicker | **8 交易所 L2 订单簿聚合** |
+| Tranche 字段 | `entry_price` / `notional_usd` | **新增 `buy_exchange` / `sell_exchange` / `symbol`** |
+| 利润计算 | 仅手续费 + 滑点 | **扣除实际可成交滑点（L2 深度计算）** |
+| 模式 | gradient 网格 | gradient + static 双模式 |
+| 实时性 | WebSocket ticker | **WebSocket + REST 轮询自动回退** |
+
+简单来说：openalpha-arbitrage 把"单所波动套利"扩展成了"跨所价差套利"，同时保留了 Tranche 独立核算这一精细仓位管理能力。
+
+## 策略扩展
+
+`backend/strategies/` 还提供了更多策略实现，可通过 `/api/strategies/*` 注册与调度：
+
+- **GridStrategy** (`grid.py`)：在区间内挂网格买卖单，适合震荡行情
+- **DcaStrategy** (`dca.py`)：定投策略
+- **TriangularStrategy** (`triangular.py`)：三角套利
+- **FundingRateStrategy** (`funding_rate.py`)：资金费率套利
+
+通过 `StrategyOrchestrator` 可以让多个策略按时间片轮转或并行运行。

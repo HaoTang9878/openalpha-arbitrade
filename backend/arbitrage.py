@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .config import Config
 from .models import ArbitrageOpportunity, RiskLevel
+from .tranche import Action, Decision, GridArbitrageEngine, Portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -52,14 +53,24 @@ class ArbitrageDetector:
     找出净利润率最高的套利机会。
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        exchange_fees: Optional[Dict[str, float]] = None,
+        engine: Optional[GridArbitrageEngine] = None,
+    ) -> None:
         """
         初始化套利检测引擎
 
         Args:
             config: 系统配置管理器
+            exchange_fees: 可选，交易所手续费覆盖 {exchange: fee_rate}
+            engine: 可选，GridArbitrageEngine 实例。传入后会在 detect 阶段
+                    对每个 opportunity 评估并附带 Decision。
         """
         self.config = config
+        self.exchange_fees = exchange_fees or {}
+        self.engine = engine
 
     def detect(
         self,
@@ -107,6 +118,18 @@ class ArbitrageDetector:
         # 返回 Top N 机会
         top_n = self.config.model.top_n_opportunities
         result = opportunities[:top_n]
+
+        # 如果配置了网格策略引擎，对每个机会调用引擎评估并附带 Decision
+        if self.engine is not None and result:
+            portfolio = Portfolio(usd_available=0.0, usdt_available=0.0)
+            for opp in result:
+                try:
+                    opp.decision = self.evaluate_with_engine(opp, portfolio)
+                except Exception as exc:  # pragma: no cover - 容错
+                    logger.warning(
+                        "网格引擎评估失败: %s symbol=%s err=%s",
+                        self.__class__.__name__, opp.symbol, exc,
+                    )
 
         if result:
             logger.info("检测到 %d 个套利机会（共扫描 %d 个交易对）",
@@ -428,3 +451,38 @@ class ArbitrageDetector:
             (risk_score 0-100, risk_level 枚举)
         """
         return self._calculate_risk_score(spread_percent, prices, symbol)
+
+    def evaluate_with_engine(
+        self,
+        opportunity: ArbitrageOpportunity,
+        portfolio: Portfolio,
+    ) -> Decision:
+        """用网格套利引擎评估套利机会，决策是否开/平仓
+
+        当 detector 未配置 engine 时，回退到原"总是开仓"逻辑；
+        配置 engine 后，会用最优卖出价（高价所）评估，并把跨所信息
+        补充到 Decision 上。
+
+        Args:
+            opportunity: 检测到的套利机会
+            portfolio: 当前投资组合
+
+        Returns:
+            Decision 对象，包含 action (BUY/SELL/HOLD) 和相关字段
+        """
+        if self.engine is None:
+            return Decision(
+                action=Action.SELL,
+                reason="no engine configured, fall back to simple buy/sell",
+                price=opportunity.sell_price,
+                notional_usd=self.config.model.order_amount * opportunity.sell_price,
+                buy_exchange=opportunity.buy_exchange,
+                sell_exchange=opportunity.sell_exchange,
+                symbol=opportunity.symbol,
+            )
+
+        decision = self.engine.evaluate(opportunity.sell_price, portfolio)
+        decision.buy_exchange = opportunity.buy_exchange
+        decision.sell_exchange = opportunity.sell_exchange
+        decision.symbol = opportunity.symbol
+        return decision

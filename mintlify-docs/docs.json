@@ -1,0 +1,63 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "OpenAlpha Arbitrage",
+  "description": "多交易所套利机器人 + Tranche 仓位记账 + 实时风控系统的文档中心。",
+  "colors": {
+    "primary": "#D4A458",
+    "light": "#E6BD7B",
+    "dark": "#B8893E"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "index",
+          "get-started/quickstart",
+          "get-started/configuration"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "core-concepts/strategy",
+          "core-concepts/risk-controls"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/docker-deployment",
+          "guides/operate-the-bot"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/api-overview",
+          "reference/event-logs"
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "API 概览",
+        "href": "/reference/api-overview"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "快速开始",
+      "href": "/get-started/quickstart"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/HaoTang9878/openalpha-arbitrade"
+    }
+  }
+}

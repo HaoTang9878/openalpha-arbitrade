@@ -553,6 +553,27 @@ class TradeExecutor:
         if exchange is None:
             raise RuntimeError(f"交易所 {exchange_name} 未初始化")
 
+        # 限价买单使用 visible_limit_buy_price 优化价格
+        if side == "buy":
+            try:
+                # 获取当前 bid
+                ticker = await exchange.fetch_ticker(symbol)
+                bid = ticker.get("bid", price)
+                if bid:
+                    optimized_price = await self.visible_limit_buy_price(
+                        exchange_name, symbol, bid
+                    )
+                    price_str = self.format_decimal(
+                        exchange_name, symbol, optimized_price
+                    )
+                    price = float(price_str)
+                    logger.debug(
+                        "限价买价优化: %s 原价=%.4f 优化=%.4f",
+                        symbol, price, optimized_price,
+                    )
+            except Exception as e:
+                logger.warning("价格优化失败，使用原价: %s", e)
+
         try:
             order = await exchange.create_limit_order(
                 symbol, side, amount, price
@@ -569,6 +590,67 @@ class TradeExecutor:
                 exchange_name, side, symbol, amount, price, e, exc_info=True,
             )
             raise
+
+    async def _parse_price_filter(
+        self, exchange_name: str, symbol: str
+    ) -> dict:
+        """解析交易所 PRICE_FILTER，返回 tickSize 和 limits"""
+        exchange = self._get_exchange(exchange_name)
+        if exchange is None:
+            return {"tick_size": None, "limits": {"min": None, "max": None}}
+
+        try:
+            if not exchange.markets:
+                await exchange.load_markets()
+            market = exchange.market(symbol)
+            price_filter = market.get("precision", {}).get("price", None)
+            limits = market.get("limits", {}).get("price", {})
+            return {
+                "tick_size": float(price_filter) if price_filter else None,
+                "limits": {
+                    "min": float(limits["min"]) if limits.get("min") else None,
+                    "max": float(limits["max"]) if limits.get("max") else None,
+                },
+            }
+        except Exception as e:
+            logger.warning(
+                "解析 %s %s 价格过滤器失败: %s", exchange_name, symbol, e
+            )
+            return {"tick_size": None, "limits": {"min": None, "max": None}}
+
+    async def visible_limit_buy_price(
+        self, exchange_name: str, symbol: str, bid: float
+    ) -> float:
+        """计算可见的限价买价：bid - 1 tick"""
+        pf = await self._parse_price_filter(exchange_name, symbol)
+        tick = pf["tick_size"]
+        if tick:
+            price = bid - tick
+        else:
+            price = bid * 0.9999  # 回退：比 bid 低 0.01%
+        return self.clamp_limit_price(price, pf["limits"])
+
+    def clamp_limit_price(self, price: float, limits: dict) -> float:
+        """按交易所 limits 钳位价格"""
+        min_price = limits.get("min")
+        max_price = limits.get("max")
+        if min_price and price < min_price:
+            return min_price
+        if max_price and price > max_price:
+            return max_price
+        return price
+
+    def format_decimal(
+        self, exchange_name: str, symbol: str, price: float
+    ) -> str:
+        """使用交易所精度格式化价格"""
+        exchange = self._get_exchange(exchange_name)
+        if exchange is None:
+            return str(price)
+        try:
+            return exchange.price_to_precision(symbol, price)
+        except Exception:
+            return str(price)
 
     async def cancel_order(self, exchange_name: str, order_id: str) -> None:
         """

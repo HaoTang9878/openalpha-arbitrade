@@ -1,0 +1,100 @@
+---
+title: "快速开始"
+description: "5 分钟内启动 OpenAlpha 套利机器人。"
+---
+
+## 环境要求
+
+- Python 3.11+
+- Node.js 22+（仅前端开发需要）
+- Docker 24+ 与 Docker Compose v2（推荐部署方式）
+- 一个能访问目标交易所的网络环境
+
+<Tip>
+  模拟模式（`paper_trade=true`）不需要任何交易所 API Key，可以直接体验完整功能。
+</Tip>
+
+## 方式一：Docker 部署（推荐）
+
+```bash
+# 1. 进入项目目录
+cd /path/to/openalpha-arbitrage
+
+# 2. 复制环境变量模板
+cp .env.example .env
+
+# 3. （必填）设置管理 Token
+echo "ARBITRAGE_API_TOKEN=$(openssl rand -hex 32)" >> .env
+
+# 4. 启动服务
+docker-compose up -d
+
+# 5. 查看实时日志
+docker logs -f openalpha-arbitrage
+```
+
+服务启动后访问 http://localhost:8070 即可打开监控仪表盘。
+
+## 方式二：本地 Python 运行
+
+```bash
+# 安装后端依赖
+cd backend
+pip install -r requirements.txt
+
+# 启动服务
+cd ..
+uvicorn backend.app:app --host 0.0.0.0 --port 8070
+```
+
+## 启动前端开发服务器
+
+```bash
+cd frontend-react
+npm install --legacy-peer-deps
+npm run dev
+```
+
+默认监听 http://localhost:5173 ，Vite 会代理 `/api`、`/ws` 请求到后端 8070 端口。
+
+## 第一次运行验证
+
+打开终端，调用健康检查端点确认服务存活：
+
+```bash
+curl http://127.0.0.1:8070/api/status
+```
+
+返回示例：
+
+```json
+{
+  "running": true,
+  "mode": "paper",
+  "scanner_active": false,
+  "arbitrage_active": false,
+  "uptime_seconds": 12,
+  "version": "0.1.0"
+}
+```
+
+启动价格扫描：
+
+```bash
+curl -X POST http://127.0.0.1:8070/api/scanner/start \
+  -H "Authorization: Bearer ${ARBITRAGE_API_TOKEN}"
+```
+
+## 查询事件历史
+
+模拟模式下所有决策都会写入 `data/events.jsonl`：
+
+```bash
+curl http://127.0.0.1:8070/api/events?limit=20
+```
+
+## 下一步
+
+- 阅读 [配置说明](/get-started/configuration) 了解所有可调参数
+- 学习 [策略机制](/core-concepts/strategy) 理解 Tranche 与网格套利
+- 浏览 [API 概览](/reference/api-overview) 查看所有可用端点
