@@ -9,6 +9,8 @@ import { useState } from 'react';
 import { api } from '../../api/client';
 import { formatPrice, formatPct, formatUsdt, riskColor } from '../../utils/format';
 import type { ArbitrageOpportunity } from '../../types';
+import { confirm } from './ConfirmDialog';
+import { toast } from './Toast';
 
 interface OpportunityCardProps {
   opportunity: ArbitrageOpportunity;
@@ -20,14 +22,18 @@ export function OpportunityCard({ opportunity: opp }: OpportunityCardProps) {
 
   /** 手动执行套利 */
   const handleExecute = async () => {
-    if (!confirm(`确认执行 ${opp.symbol} 套利？\n${opp.buy_exchange} 买 → ${opp.sell_exchange} 卖`)) {
-      return;
-    }
+    const confirmed = await confirm(
+      `确认执行 ${opp.symbol} 套利？\n${opp.buy_exchange} 买 → ${opp.sell_exchange} 卖`,
+      { title: '执行套利', okText: '执行', cancelText: '取消', okType: 'primary' },
+    );
+    if (!confirmed) return;
+
     setExecuting(true);
     try {
       await api.executeTrade(opp);
+      toast.success('套利执行完成');
     } catch (e) {
-      alert('执行失败: ' + (e as Error).message);
+      toast.error('执行失败: ' + (e as Error).message);
     } finally {
       setExecuting(false);
     }

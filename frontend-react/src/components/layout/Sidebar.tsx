@@ -8,6 +8,15 @@
  */
 
 import { NavLink } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  Bot,
+  TrendingUp,
+  Flame,
+  FileText,
+  Settings,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface SidebarProps {
   /** 移动端是否展开 */
@@ -17,13 +26,13 @@ interface SidebarProps {
 }
 
 /** 导航菜单项定义 */
-const NAV_ITEMS = [
-  { path: '/', label: '实时监控', icon: '📊' },
-  { path: '/bots', label: '策略机器人', icon: '🤖' },
-  { path: '/backtest', label: '回测', icon: '📈' },
-  { path: '/heatmap', label: '价差热力图', icon: '🔥' },
-  { path: '/reports', label: '每日报告', icon: '📋' },
-  { path: '/settings', label: '设置', icon: '⚙️' },
+const NAV_ITEMS: { path: string; label: string; icon: LucideIcon }[] = [
+  { path: '/', label: '实时监控', icon: LayoutDashboard },
+  { path: '/bots', label: '策略机器人', icon: Bot },
+  { path: '/backtest', label: '回测', icon: TrendingUp },
+  { path: '/heatmap', label: '价差热力图', icon: Flame },
+  { path: '/reports', label: '每日报告', icon: FileText },
+  { path: '/settings', label: '设置', icon: Settings },
 ];
 
 export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
@@ -42,11 +51,16 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         className={`
           fixed lg:sticky top-0 left-0 z-50
           w-60 h-screen
-          bg-base-panel border-r border-border
+          border-r border-border
           flex flex-col
           transition-transform duration-300
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--color-bg-panel) 80%, transparent)',
+          backdropFilter: 'blur(12px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(12px) saturate(140%)',
+        }}
       >
         {/* Logo 区域 */}
         <div className="flex items-center gap-2 px-5 h-14 border-b border-border">
@@ -59,25 +73,28 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
           <div className="text-xs uppercase tracking-wide text-gray-500 px-2 mb-2">
             导航
           </div>
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === '/'}
-              onClick={onClose}
-              className={({ isActive }) => `
-                flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium
-                transition-colors mb-1
-                ${isActive
-                  ? 'bg-accent/10 text-accent border border-accent/30'
-                  : 'text-gray-400 hover:text-gray-100 hover:bg-base-hover border border-transparent'
-                }
-              `}
-            >
-              <span className="text-base">{item.icon}</span>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === '/'}
+                onClick={onClose}
+                className={({ isActive }) => `
+                  flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium
+                  transition-colors mb-1
+                  ${isActive
+                    ? 'bg-accent/10 text-accent border border-accent/30'
+                    : 'text-gray-400 hover:text-gray-100 hover:bg-base-hover border border-transparent'
+                  }
+                `}
+              >
+                <Icon className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
 
         {/* 底部版本信息 */}

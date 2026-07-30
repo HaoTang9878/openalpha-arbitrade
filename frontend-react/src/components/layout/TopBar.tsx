@@ -27,9 +27,12 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   /** 运行时长实时更新 */
   const [uptime, setUptime] = useState(0);
   useEffect(() => {
-    if (systemStatus?.uptime_seconds) {
+    if (systemStatus?.uptime_seconds !== undefined) {
+      const baseUptime = systemStatus.uptime_seconds;
+      const baseTime = Date.now();
+      setUptime(baseUptime);
       const timer = setInterval(() => {
-        setUptime(systemStatus.uptime_seconds + Math.floor((Date.now() - 0) / 1000) % 100000);
+        setUptime(baseUptime + Math.floor((Date.now() - baseTime) / 1000));
       }, 1000);
       return () => clearInterval(timer);
     }
@@ -81,7 +84,14 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   const paperTrade = systemStatus?.paper_trade ?? true;
 
   return (
-    <header className="flex items-center justify-between h-14 px-4 bg-base-panel border-b border-border flex-shrink-0">
+    <header
+      className="flex items-center justify-between h-14 px-4 border-b border-border flex-shrink-0"
+      style={{
+        backgroundColor: 'color-mix(in srgb, var(--color-bg-panel) 80%, transparent)',
+        backdropFilter: 'blur(12px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(12px) saturate(140%)',
+      }}
+    >
       {/* 左侧：汉堡按钮 + 状态指示 */}
       <div className="flex items-center gap-3">
         {/* 移动端汉堡按钮 */}
