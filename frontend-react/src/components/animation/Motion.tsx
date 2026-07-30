@@ -10,7 +10,6 @@ import {
   motion,
   useScroll,
   useTransform,
-  type MotionProps,
 } from 'framer-motion';
 import {
   useRef,

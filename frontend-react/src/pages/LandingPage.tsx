@@ -18,7 +18,7 @@ import {
   Activity,
   ArrowRight,
 } from 'lucide-react';
-import { FadeIn, Magnet, AnimatedText } from '../components/animation/Motion';
+import { FadeIn, AnimatedText } from '../components/animation/Motion';
 import { ContactButton, LiveProjectButton } from '../components/common/GradientButton';
 
 // ─── Hero Section ────────────────────────────────────────
@@ -26,21 +26,21 @@ import { ContactButton, LiveProjectButton } from '../components/common/GradientB
 function HeroSection() {
   return (
     <section
-      className="relative h-screen flex flex-col overflow-hidden"
-      style={{ overflowX: 'clip' }}
+      className="relative min-h-screen flex flex-col"
+      style={{ overflowX: 'clip', background: '#070B10' }}
     >
       {/* 导航栏 */}
       <FadeIn delay={0} y={-20}>
         <nav className="flex justify-between items-center px-6 md:px-10 pt-6 md:pt-8">
-          <span className="text-sm md:text-lg lg:text-xl font-bold text-accent">
+          <span className="text-sm md:text-lg lg:text-xl font-bold" style={{ color: '#D4A458' }}>
             OpenAlpha
           </span>
-          <div className="flex gap-6 md:gap-10">
+          <div className="flex gap-4 sm:gap-6 md:gap-10">
             {['功能', '策略', '数据', '文档'].map((item) => (
               <a
                 key={item}
                 href={`#${item}`}
-                className="text-sm md:text-lg lg:text-xl font-medium uppercase tracking-wider transition-opacity hover:opacity-70"
+                className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium uppercase tracking-wider transition-opacity hover:opacity-70"
                 style={{ color: '#D7E2EA' }}
               >
                 {item}
@@ -51,10 +51,10 @@ function HeroSection() {
       </FadeIn>
 
       {/* 主标题 */}
-      <div className="overflow-hidden mt-6 sm:mt-4 md:-mt-5 px-4">
+      <div className="overflow-hidden mt-8 sm:mt-12 md:mt-16 px-4 text-center">
         <FadeIn delay={0.15} y={40}>
           <h1
-            className="hero-heading font-black uppercase tracking-tight leading-none whitespace-nowrap w-full"
+            className="hero-heading font-black uppercase tracking-tight leading-none w-full"
             style={{ fontSize: 'clamp(3rem, 14vw, 17vw)' }}
           >
             套利引擎
@@ -64,12 +64,10 @@ function HeroSection() {
 
       {/* 底部栏 */}
       <div className="flex-1" />
-      <div
-        className="flex justify-between items-end px-6 md:px-10 pb-7 sm:pb-8 md:pb-10"
-      >
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-6 px-6 md:px-10 pb-8 sm:pb-10 md:pb-12">
         <FadeIn delay={0.35} y={20}>
           <p
-            className="font-light uppercase tracking-wide leading-snug"
+            className="font-light uppercase tracking-wide leading-snug text-center sm:text-left"
             style={{
               color: '#D7E2EA',
               fontSize: 'clamp(0.75rem, 1.4vw, 1.5rem)',
@@ -318,8 +316,8 @@ function CTASection() {
 export function LandingPage() {
   return (
     <div
-      className="min-h-screen"
-      style={{ background: '#070B10', overflowX: 'clip' }}
+      className="min-h-screen w-full"
+      style={{ background: '#070B10', overflowX: 'clip', color: '#D7E2EA' }}
     >
       <HeroSection />
       <MarqueeSection />
